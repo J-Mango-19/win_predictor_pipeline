@@ -1,0 +1,29 @@
+[project]
+name = "ingestion"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Jack", email = "jcm2022@icloud.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "boto3>=1.43.78",
+    "polars>=1.43.2",
+    "prefect>=3.8.3",
+    "psycopg[binary,pool]>=3.3.4",
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+    "common",
+]
+
+[project.scripts]
+ingestion = "ingestion:main"
+
+[tool.uv.sources]
+common = { path = "../../libs/common", editable = true}
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"

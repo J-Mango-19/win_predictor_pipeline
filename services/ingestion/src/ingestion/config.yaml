@@ -1,0 +1,31 @@
+global_opts:
+  clear_logs: true
+  log_dir: "classification-pipeline/gather_dataset/worker_process_logs"
+  max_processes_per_cr_api_key: 5
+  setup_db: false
+
+clan_ids:
+  num_workers: 5
+  clans_per_worker: 10_000
+  min_ids_needed: 50_000
+  force_store_clans: false
+
+active_players:
+  num_workers: 5
+  # Number of clans scraped per worker process to extract active player tags
+  source_clans_per_worker: 10_000
+  min_ids_needed: 1_000_000
+  force_store_players: false 
+
+games:
+  num_workers: 8
+  inactivity_threshold_weeks: 2
+  game_modes_allowed: ["draft", "triple draft", "mega draft", "ladder", "ranked ladder"]
+
+export_clean_dataset:
+  max_loser_lvl_advantage: 5
+  dataset_filename: "clean-games-latest"
+  max_games_chunk: 1_000_000
+
+export_database:
+  database_dump_filename: "latest_cr_db.dump"

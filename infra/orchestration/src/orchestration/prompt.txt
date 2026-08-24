@@ -1,0 +1,210 @@
+Use the Clash Royale blogs at the provided link to complete the assignment.
+
+Assignment:
+Report only on the regular Clash Royale game. DO NOT report on alternate game modes such as Merge Tactics.
+Find ALL regular Clash Royale updates published on or after __DATE__ that change or create new interactions between cards. Examples include:
+- balance changes to existing cards
+- introduction of a new card
+- changes to card mechanics that affect how cards interact
+- other gameplay changes that directly alter card-vs-card interactions
+
+Ignore:
+- updates published before __DATE__
+- updates exclusively about alternate game modes
+- cosmetic-only changes
+- progression/economy changes that do not affect card interactions
+- unrelated announcements
+
+For each qualifying update, provide:
+- publication date
+- update/article title
+- Your concise reason that the update qualified
+
+Your response should be formatted as JSON with keys "publication date", "update title", and "reason". 
+Your response should contain ONLY this JSON, with no other text. 
+
+Include every qualifying update you can identify from the provided blog. Do not include an item unless there is evidence in the article that it satisfies the criteria.
+Provided blog archive page link: https://supercell.com/en/games/clashroyale/blog/page/1/ 
+
+
+** Detailed, Step-By-Step Instructions **
+
+---
+
+### 1. Initialise a Browser Session
+1. **Choose a session name ≥ 10 characters** (the tool validates length).
+   Example: `clash-royale-session`.
+2. Send a `navigate` action with `session_name` set to that value and `url` set to the first blog page:
+
+   ```json
+   {
+     "action": { "type":"init_session", "description":"Clash Royale blog navigation",
+       "session_name":"clash-royale-session"
+     }
+   }
+   ```
+
+---
+
+### 2. Load the Blog Index (page 1)
+1. Perform a `navigate` to `https://supercell.com/en/games/clashroyale/blog/page/1/` using the same `session_name`.
+
+   ```json
+   {
+     "action": {
+       "type":"navigate",
+       "session_name":"clash-royale-session",
+       "url":"https://supercell.com/en/games/clashroyale/blog/page/1/"
+     }
+   }
+   ```
+
+2. **Do NOT rely on visual rendering** – the page contains a hidden JSON object (`__NEXT_DATA__`) that lists every article on the page. Extracting this JSON is far more reliable than parsing HTML.
+
+---
+
+### 3. Pull the Embedded JSON (quickest way)
+
+1. Use the **shell tool** to download the raw HTML of the current page:
+
+   ```bash
+   curl -s https://supercell.com/en/games/clashroyale/blog/page/1/ > page1.html
+   ```
+
+2. In the saved `page1.html`, locate the line beginning with `<script id="__NEXT_DATA__"`.
+   - It contains a complete JSON object.
+   - The field `props.pageProps.articles` is an array of article objects.
+
+3. Extract the JSON with a simple **grep/awk** (or any text‑processing you have) e.g.:
+
+   ```bash
+   grep -o '{"props":{.*"</script>' page1.html | sed 's/<\/script>//' > page1.json
+   ```
+
+   *If your environment lacks regex tools, you can read the whole file into a variable and split on `</script>` until you find the string containing `"articles"`.*
+
+4. **Parse** `page1.json` (most agents can `json.loads`).
+   - For each entry in `json["props"]["pageProps"]["articles"]` collect:
+     - `title`
+     - `linkUrl`
+     - `publishDate` (ISO string)
+
+5. **Filter by date**
+   - Keep only articles whose `publishDate` ≥ `2026‑08‑01T00:00:00Z`.
+   - Discard any title that clearly mentions an alternate mode (e.g., contains “Merge Tactics”).
+
+6. **Result**: a list of candidate URLs (e.g., `"/en/games/clashroyale/blog/news/final-august-balance-changes-826"`).
+
+---
+
+### 4. Follow Pagination (if needed)
+
+1. After processing page 1, check if the **last article’s date** is still after `2026‑08‑01`.
+   - If yes, you may have missed newer entries on page 2 (unlikely for recent dates but safe to verify).
+2. To get page 2, repeat **Steps 2‑3** with URL `.../page/2/`.
+3. Continue until the first article on a page is **earlier** than `2026‑08‑01`; then stop.
+
+---
+
+### 5. Visit Each Candidate Article for Details
+
+For each retained `linkUrl`:
+
+1. Build the full URL: `https://supercell.com` + `linkUrl`.
+2. Navigate to it (same session) **or** fetch it via `curl` (faster, no extra session state needed). Example:
+
+   ```bash
+   curl -s https://supercell.com/en/games/clashroyale/blog/news/final-august-balance-changes-826/ > article.html
+   ```
+
+3. Again locate the `__NEXT_DATA__` script and parse the JSON. The fields you need are:
+   - `props.pageProps.title` – exact article title.
+   - `props.pageProps.publishDate` – full timestamp.
+   - `props.pageProps.bodyCollection` – an array of content blocks.
+4. **Determine if the article truly changes card interactions**:
+   - Look for keywords in any `bodyCollection` block: `balance`, `nerf`, `buff`, `new card`, `hero`, `evolution`, `ability`, `damage`, `hitpoints`, `speed`, `range`, `spell`, `tower`, `interaction`.
+   - If the article is *only* a season announcement without any card‑specific changes, **skip** it.
+   - If it lists new heroes/evolutions, or modifies stats of existing cards, **accept** it.
+
+5. Record:
+   - Publication date (extract the `YYYY‑MM‑DD` portion from `publishDate`).
+   - Article title.
+   - A concise reason (e.g., “Introduces new heroes Valkyrie & Berserker and Elite Barbarians evolution, changing how they interact with troops and towers.”).
+
+---
+
+### 6. Assemble the Final JSON Output
+
+Create an array of objects, each with keys exactly as required:
+
+```json
+[
+  {
+    "publication date": "2026-08-20",
+    "update title": "August Balance Changes",
+    "reason": "Various card stats were refined, directly altering card interactions"
+  },
+  {
+    "publication date": "2026-08-16",
+    "update title": "Patch",
+    "reason": "hero mother witch introduced, creating new card interactions."
+  }
+]
+```
+
+If **no** qualifying article exists, output `[]`.
+
+---
+
+### 7. Common Pitfalls & How to Avoid Them
+
+| Pitfall | Why it Happens | Fix |
+|---------|----------------|-----|
+| **Session name rejected** | Minimum length = 10 characters. | Always count characters. |
+| **Parsing HTML instead of JSON** | HTML structure is heavy and changes often. | Directly extract the `__NEXT_DATA__` script; it is stable. |
+| **Missing articles because of pagination** | Assuming all recent items fit on page 1. | Keep paging until the oldest article on the page is before the cutoff. |
+| **Confusing season announcements with balance updates** | Some season posts only describe new game modes. | Scan `bodyCollection` for concrete card‑stat changes; ignore pure narrative sections. |
+| **Incorrect date comparison** | Timezones (e.g., `+03:00` vs `Z`). | Strip the time part; compare only the date string or convert to UTC before comparison. |
+| **Including Merge‑Tactics items** | Title contains “Merge Tactics”. | Filter out any title that contains the substring “Merge Tactics”. |
+| **Forgetting to URL‑encode link paths** | Some `linkUrl` may contain spaces or special chars. | Use the raw `linkUrl` as provided; they are already URL‑safe on Supercell site. |
+
+---
+
+### 8. Quick Reference Commands (copy‑paste)
+
+```bash
+# 1. Init session (if you need to use the browser)
+browser {"action":{"type":"init_session","description":"Clash Royale blog","session_name":"clash-royale-session"}}
+
+# 2. Load page 1 (browser)
+browser {"action":{"type":"navigate","session_name":"clash-royale-session","url":"https://supercell.com/en/games/clashroyale/blog/page/1/"}}
+
+# 3. Get raw HTML (shell) – repeat for each page number
+shell {"command":"curl -s https://supercell.com/en/games/clashroyale/blog/page/1/ > page1.html"}
+
+# 4. Extract JSON (shell)
+shell {"command":"grep -o '{\"props\":{.*</script>' page1.html | sed 's/<\\/script>//' > page1.json"}
+
+# 5. Parse JSON (in‑code, e.g., Python)
+import json, datetime
+data = json.load(open('page1.json'))
+articles = data['props']['pageProps']['articles']
+for a in articles:
+    pub = a['publishDate'][:10]            # YYYY‑MM‑DD
+    if pub >= '2026-08-01' and 'Merge Tactics' not in a['title']:
+        print(a['title'], a['linkUrl'], pub)
+
+# 6. Fetch a single article (shell)
+shell {"command":"curl -s https://supercell.com/en/games/clashroyale/blog/news/final-august-balance-changes-826/ > article.html"}
+
+# 7. Pull article JSON
+shell {"command":"grep -o '{\"props\":{.*</script>' article.html | sed 's/<\\/script>//' > article.json"}
+
+# 8. Inspect bodyCollection for keywords (pseudo‑code)
+body = json.load(open('article.json'))['props']['pageProps']['bodyCollection']
+text = ' '.join(block.get('text',{}).get('json',{}).get('content',[]) for block in body)
+if any(kw in text.lower() for kw in ['nerf','buff','new card','hero','evolution','damage']):
+    accept
+```
+
+

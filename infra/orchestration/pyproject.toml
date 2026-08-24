@@ -1,0 +1,26 @@
+[project]
+name = "orchestration"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Jack", email = "jcm2022@icloud.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "boto3>=1.43.78",
+    "prefect>=3.8.3",
+    "python-terraform>=0.10.1",
+    "common",
+    "polars>=1.43.2",
+]
+
+[project.scripts]
+orchestration = "orchestration.orchestrator:main"
+
+[tool.uv.sources]
+common = {path = "../../libs/common", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"

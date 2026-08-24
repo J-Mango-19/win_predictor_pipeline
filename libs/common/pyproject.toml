@@ -1,0 +1,17 @@
+[project]
+name = "common"
+version = "0.1.0"
+description = "Shared package across projects"
+readme = "README.md"
+authors = [
+    { name = "Jack", email = "jcm2022@icloud.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.scripts]
+common = "common:main"
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"
