@@ -273,7 +273,7 @@ def claim_player_ids(max_player_ids: int, logger) -> list:
     return claimed_player_ids
 
 
-def fetch_and_store_games(api_key: str, oldest_time_allowed: datetime, game_modes_allowed: list, inactivity_limit_wks: int, card_to_idx: dict, log_dir: Path, write_player_chunk_size: int=500, read_player_chunk_size: int=25_000) -> None:
+def fetch_and_store_games(api_key: str, oldest_time_allowed: datetime, game_modes_allowed: list, inactivity_limit_wks: int, card_to_idx: dict, log_dir: Path, soft_games_limit: int, write_player_chunk_size: int=500, read_player_chunk_size: int=25_000) -> None:
     """
     While there are unclaimed players in the active_players table... 
         - claims a chunk of players from the active_players table
@@ -395,15 +395,28 @@ def fetch_and_store_games(api_key: str, oldest_time_allowed: datetime, game_mode
                 cur.executemany(delete_pids_sql, ids_tuples)
         nonlocal stale_players_removed
         stale_players_removed += len(ids_tuples)
+    
+    def count_games_in_db():
+        """ returns the number of games stored in the games table """
+        count_games_sql = """
+            SELECT COUNT(*)
+            FROM games;
+        """
+        with psycopg.connect(construct_db_URI()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(count_games_sql) 
+                count = cur.fetchone()[0]
+        return count
+
 
     total_battles_found = 0
     total_battles_inserted = 0
     stale_players_removed = 0
 
     session = make_robust_session()
+    num_games_collected = 0
 
-    while claimed_player_ids := claim_player_ids(max_player_ids=read_player_chunk_size, logger=logger):
-
+    while (claimed_player_ids := claim_player_ids(max_player_ids=read_player_chunk_size, logger=logger)) and num_games_collected < soft_games_limit:
         # claimed_player_ids is a list of player ids, with length at most read_player_chunk_size 
 
         # download battles & write them in chunks
@@ -432,7 +445,9 @@ def fetch_and_store_games(api_key: str, oldest_time_allowed: datetime, game_mode
             del new_opponents
             del stale_player_ids
             gc.collect()
+
         logger.info("Processed a read chunk of players. Continuing to next chunk...")
+        num_games_collected = count_games_in_db()
 
     logger.info("store_games ran out of non-claimed player Ids, returned successfully.")
     logger.info(

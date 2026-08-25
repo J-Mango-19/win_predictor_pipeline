@@ -109,8 +109,23 @@ echo "==> Database restore and permissions setup complete!"
 
 
 # step 8: install uv, clone the repo onto this ec2 machine
-dnf install -y uv
-git clone https://github.com/your-user/your-repo.git /opt/classification-pipeline
-cd /opt/classification-pipeline/services/ingestion
+echo "==> Installing git and uv..."
+
+dnf install -y git curl
+
+curl -LsSf https://astral.sh/uv/install.sh \
+    | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
+
+echo "==> Installing project..."
+mkdir -p /opt
+git clone https://github.com/J-Mango-19/win_predictor_pipeline.git \
+    /opt/classification-pipeline
+
+echo "==> Verifying installation..."
+command -v git
+command -v uv
+test -d /opt/classification-pipeline/services/ingestion
+
+echo "==> Project setup complete!"
 
 # step 9: let prefect run the ingestion command remotely

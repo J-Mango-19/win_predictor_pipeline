@@ -48,6 +48,16 @@ resource "aws_iam_role_policy_attachment" "s3_read_write_attach" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
 
+# Persistent SSM policy attachment
+#
+# Required for the SSM agent on the instance to register with
+# the Systems Manager service and accept run_remote_command calls.
+
+resource "aws_iam_role_policy_attachment" "ssm_managed_instance_attach" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 
 # Persistent instance profile
 

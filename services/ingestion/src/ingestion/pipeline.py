@@ -1,4 +1,5 @@
 import gc
+import sys
 import tempfile
 import subprocess
 import logging
@@ -10,10 +11,11 @@ from datetime import datetime
 from botocore.exceptions import ClientError
 from multiprocessing import Pool
 from ingestion.utils import construct_db_URI, make_card_to_idx_mapping
-from ingestion.config import get_api_credentials, load_pipeline_config, get_s3_bucket_name, get_database_dump_path, StoreActivePlayerIDsConfig, StoreGamesConfig, StoreClanIDsConfig, get_aws_region, get_aws_profile
+from ingestion.config import load_pipeline_config,  StoreActivePlayerIDsConfig, StoreGamesConfig, StoreClanIDsConfig
 from ingestion.extractors.clans import get_region_IDs, fetch_and_store_clans
 from ingestion.extractors.players import fetch_and_store_players
 from ingestion.extractors.battles import fetch_and_store_games
+from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_path, get_aws_region, get_aws_profile
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
 logging.basicConfig(level=logging.INFO)
@@ -72,7 +74,7 @@ def task_store_games(cfg: StoreGamesConfig, cr_api_keys: list[str], worker_log_d
                 logger.warning(f"Ran out of API keys to use for workers; using only {i} workers instead of {cfg.num_workers}")
                 break
                 
-        pool_args.append((cr_api_keys[api_key_idx], oldest_time_allowed, cfg.game_modes_allowed, cfg.inactivity_limit_wks, card_to_idx, worker_log_dir))
+        pool_args.append((cr_api_keys[api_key_idx], oldest_time_allowed, cfg.game_modes_allowed, cfg.inactivity_limit_wks, card_to_idx, worker_log_dir, cfg.soft_games_limit))
 
     with Pool(processes=len(pool_args)) as pool:
         pool.starmap(fetch_and_store_games, pool_args)
@@ -85,8 +87,8 @@ def task_export_clean_dataset(
     dataset_filename: str,
     max_games_chunk: int,
     max_lvl_gap: float,
-    aws_profile: str = "default",
-    aws_region: str = "us-east-2",  # ohio
+    aws_profile: str,
+    aws_region: str
 ) -> bool:
     """
     Read the `games` table, clean it, and upload the result to S3 as a
@@ -223,7 +225,13 @@ def task_save_database_dump(
     s3_client.upload_file(filename, bucket, s3_key)
 
 
-def main(oldest_time_allowed: datetime):
+def main():
+    if len(sys.argv) < 2:
+        print("Error: Please provide at least one argument.", file=sys.stderr)
+        print("Usage: uv run myscript.py <your_argument>")
+        sys.exit(1)
+
+    oldest_time_allowed = datetime.fromisoformat(sys.argv[1])
     config_path = PROJECT_ROOT / "services/ingestion/src/ingestion/config.yaml"
     pipeline_cfg = load_pipeline_config(config_path)
 
@@ -287,3 +295,6 @@ def main(oldest_time_allowed: datetime):
         aws_profile=get_aws_profile(),
         aws_region=get_aws_region()
     )
+
+if __name__ == '__main__':
+    main()

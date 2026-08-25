@@ -1,7 +1,5 @@
 import yaml
 from pydantic import BaseModel, Field
-from prefect.blocks.system import Secret
-from prefect import Variable
 
 # --- Task-Specific Configuration Models ---
 
@@ -21,6 +19,7 @@ class StoreGamesConfig(BaseModel):
     num_workers: int = Field(default=4, description="Parallel worker processes for fetching game logs.")
     inactivity_threshold_weeks: int = Field(default=2, description="Remove players whose latest game is older than X weeks.")
     game_modes_allowed: list[str] = Field(default=["draft", "triple draft", "mega draft", "ladder", "ranked ladder"], description="Game modes to include in the DB.")
+    soft_games_limit: str = Field(default=20_000_000, description="Soft limit on the number of games to store in the games table")
 
 class ExportCleanDatasetConfig(BaseModel):
     max_loser_lvl_advantage: int = Field(default=5, description="Max allowed avg card level gap for losing games.")
@@ -46,50 +45,6 @@ class PipelineConfig(BaseModel):
     export_clean_dataset: ExportCleanDatasetConfig = Field(default_factory=ExportCleanDatasetConfig)
     save_db: SaveDatabaseConfig = Field(default_factory=SaveDatabaseConfig)
 
-def get_api_credentials() -> list[str]:
-    """Retrieves encrypted secrets directly from Prefect Cloud Blocks."""
-    keys = []
-    for key_name in ["clash-api-key-primary", "clash-api-key-secondary"]:
-        try:
-            # Prefect 3.0 Secret Block load pattern
-            token = Secret.load(key_name).get()
-            keys.append(token)
-        except Exception:
-            # Fallback for local debugging if block isn't in Cloud
-            raise ValueError("No clash royale API keys found!")
-    return keys
-
-def load_database_credentials() -> dict:
-    """Retrieves encrypted database credentials directly from Prefect Cloud Blocks."""
-
-    password = Secret.load("db-password").get()
-    db_name = Variable.get("db-name")
-    db_user = Variable.get("db-user")
-    db_host = Variable.get("db-host")
-    db_port = Variable.get("db-port")
-    return {
-        "dbname": db_name,
-        "user": db_user,
-        "host": db_host,
-        "port": db_port,
-        "password": password
-    }
-
-def get_s3_bucket_name() -> str:
-    """ return the name of the S3 bucket to store the clean dataset """
-    return Variable.get("s3-bucket-name")
-
-def get_database_dump_path() -> str:
-    """ return the path to the latest database dump file """
-    return Variable.get("s3-dump-path")
-
-def get_aws_region() -> str:
-    """ return the AWS region for S3 bucket """
-    return Variable.get("aws-region")
-
-def get_aws_profile() -> str:   
-    """ return the AWS profile for S3 bucket """
-    return Variable.get("aws-profile")
 
 def load_pipeline_config(config_path: str = "config.yaml") -> PipelineConfig:
     """Always returns a single, strongly-typed PipelineConfig instance."""
