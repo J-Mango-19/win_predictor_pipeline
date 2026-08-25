@@ -1,9 +1,14 @@
+import sys
+import time
 import boto3
 from prefect import flow, task, get_run_logger
+from botocore.exceptions import WaiterError
+from datetime import datetime
 from pathlib import Path
 from python_terraform import Terraform, TerraformCommandError
 from orchestration.utils import construct_prompt, get_response, extract_json_from_tail
 from common.constants import PROJECT_ROOT
+from common.utils import run_remote_command
 
 
 @task
@@ -21,8 +26,8 @@ def check_for_game_changing_events():
     logger.info(f"Game-changing events found: {response_list}")
     return len(response_list) > 0
 
-@task(name="provision-infrastructure", retries=0)
-def provision_infrastructure(tf_base_dir: str | Path) -> tuple[str, str]:
+@task(name="provision-ingestion-infrastructure", retries=0)
+def provision_ingestion_infrastructure(tf_base_dir: str | Path) -> tuple[str, str, str]:
     """
     Manages Terraform lifecycle:
     1. Apply persistent infrastructure.
@@ -85,11 +90,72 @@ def provision_infrastructure(tf_base_dir: str | Path) -> tuple[str, str]:
         raise TerraformCommandError(return_code, "terraform apply (temporary)", stdout, stderr)
 
     logger.info("Infrastructure lifecycle initialized successfully.")
-    return elastic_ip_allocation_id, instance_profile_name
+
+    # Step 4: Collect the instance id from the temporary infra
+    tmp_outputs = tf_temporary.output()
+    tmp_instance_id = tmp_outputs["instance_id"]["value"]
+    return elastic_ip_allocation_id, instance_profile_name, tmp_instance_id
+
+@task(name="wait-for-instance-ready", retries=0)
+def wait_for_instance_ready(instance_id: str, ssm_timeout_seconds: int = 300, ssm_poll_interval: int = 10) -> None:
+    """
+    Block until an EC2 instance is fully ready to receive commands:
+      1. Passes EC2 status checks (instance + system reachability)
+      2. Is registered and pinging with SSM (required for run_remote_command)
+    """
+    logger = get_run_logger()
+    ec2 = boto3.client('ec2', region_name='us-east-2')
+    ssm = boto3.client('ssm', region_name='us-east-2')
+
+    # --- Step 1: wait for EC2 status checks ---
+    logger.info(f"Waiting for instance {instance_id} to pass EC2 status checks...")
+    waiter = ec2.get_waiter('instance_status_ok')
+    try:
+        waiter.wait(
+            InstanceIds=[instance_id],
+            WaiterConfig={'Delay': 15, 'MaxAttempts': 40},  # ~10 min ceiling
+        )
+    except WaiterError as e:
+        raise RuntimeError(f"Instance {instance_id} never passed EC2 status checks: {e}")
+    logger.info(f"Instance {instance_id} passed EC2 status checks.")
+
+    # --- Step 2: wait for SSM agent to register and report Online ---
+    logger.info(f"Waiting for SSM agent on {instance_id} to come online...")
+    elapsed = 0
+    while elapsed < ssm_timeout_seconds:
+        resp = ssm.describe_instance_information(
+            Filters=[{'Key': 'InstanceIds', 'Values': [instance_id]}]
+        )
+        infos = resp.get('InstanceInformationList', [])
+        if infos and infos[0].get('PingStatus') == 'Online':
+            logger.info(f"SSM agent on {instance_id} is online.")
+            return
+        time.sleep(ssm_poll_interval)
+        elapsed += ssm_poll_interval
+
+    raise RuntimeError(
+        f"SSM agent on {instance_id} did not come online within {ssm_timeout_seconds}s. "
+        f"Check that the instance profile has AmazonSSMManagedInstanceCore and that "
+        f"the SSM agent is installed/running on your AMI."
+    )
+
+@task(name="call_ingestion", retries=0)
+def call_ingestion(oldest_time_allowed: datetime, instance_id: str) -> None:
+    """ call the data ingestion pipeline on an existing EC2 instance """
+    commands = [
+                "cd /opt/my-project/services/ingestion",
+                f"uv run python -m ingestion.pipeline {str(oldest_time_allowed)}",
+            ]
+
+    response = run_remote_command(instance_id, commands)
+    if 'failed' in response:
+        raise RuntimeError(response)
+    
+    print(response)
 
 
 @task(name="destroy-infrastructure", retries=0)
-def destroy_infrastructure(tf_base_dir: str | Path, elastic_ip_allocation_id: str, instance_profile_name: str) -> None:
+def destroy_ingestion_infrastructure(tf_base_dir: str | Path, elastic_ip_allocation_id: str, instance_profile_name: str) -> None:
     logger = get_run_logger()
     base_path = Path(tf_base_dir).resolve()
 
@@ -114,34 +180,38 @@ def destroy_infrastructure(tf_base_dir: str | Path, elastic_ip_allocation_id: st
 
 @flow
 def main():
-
     logger = get_run_logger()
-
 
     # 1: Check for whether Clash Royale has been updated since the last run
     #game_changed = check_for_game_changing_events()
-    game_changed = True  # FOR TESTING ONLY
+    game_changed = True; print("HARDCODED game_changed=True for testing")  # FOR TESTING ONLY
     if not game_changed:
         return
 
-    # formally, this would all be logged...
     logger.info("Initiating Data Collection & Training")
-    # send email or slack or something indicating that a new cycle is beginning & what the changes were
 
 
-    # 2: Destroy any existing infrastructure for active data collection / training runs, then create fresh infra
-    # note that we DO NOT destroy persistent infrastructure
+    # 2: Create fresh infra for ingestion (clearing any existing ephemeral infra)
     tf_base_dir = PROJECT_ROOT / "infra/terraform"
+
+
     logger.info(f"Using Terraform base directory: {tf_base_dir}")
-    elastic_ip_allocation_id, instance_profile_name = provision_infrastructure(tf_base_dir=tf_base_dir)
+    elastic_ip_allocation_id, instance_profile_name, tmp_instance_id = provision_ingestion_infrastructure(tf_base_dir=tf_base_dir)
+    wait_for_instance_ready(tmp_instance_id)
 
-
-    # 3: Deploy infrastructure for a fresh data collection run
-    # Deploy EC2 instances to collect dataset via terraform
-    # use now() as the earliest valid time or perhaps wait a day
-    # don't forget to build the urls dict/json with every troop encountered and send those to S3
-    # tear down data collection infra
-
+    # 3: Invoke data ingestion
+    oldest_time_allowed = datetime.now() 
+    try:
+        call_ingestion(oldest_time_allowed, tmp_instance_id) # TODO: modify ingestion code to build the urls dict/json with every troop encountered and send those to S3
+    except:
+        logger.error("Ingestion failed!!")
+        sys.exit(1) # infra destruction in `finally` will still run before exiting
+    
+    finally:
+        # tear down data ingestion infra
+        logger.info("destroying ephemeral infra")
+        destroy_ingestion_infrastructure(tf_base_dir, elastic_ip_allocation_id, instance_profile_name)
+    
     # 4: Deploy training infra
     # train model
     # quantize
@@ -153,12 +223,6 @@ def main():
     # send a requests.post() trigger to github actions
     # which will download and serve the new weights
     # and the new troop image URLs
-
-    import time
-    logger.info("Waiting 5 mins before tearing down infra, starting now.")
-    time.sleep(5 * 60)
-
-    destroy_infrastructure(tf_base_dir, elastic_ip_allocation_id, instance_profile_name)
 
 
 
