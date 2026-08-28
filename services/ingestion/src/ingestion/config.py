@@ -19,7 +19,7 @@ class StoreGamesConfig(BaseModel):
     num_workers: int = Field(default=4, description="Parallel worker processes for fetching game logs.")
     inactivity_threshold_weeks: int = Field(default=2, description="Remove players whose latest game is older than X weeks.")
     game_modes_allowed: list[str] = Field(default=["draft", "triple draft", "mega draft", "ladder", "ranked ladder"], description="Game modes to include in the DB.")
-    soft_games_limit: str = Field(default=20_000_000, description="Soft limit on the number of games to store in the games table")
+    soft_games_limit: int = Field(default=20_000_000, description="Soft limit on the number of games to store in the games table")
 
 class ExportCleanDatasetConfig(BaseModel):
     max_loser_lvl_advantage: int = Field(default=5, description="Max allowed avg card level gap for losing games.")
