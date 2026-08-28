@@ -113,7 +113,7 @@ def wait_for_instance_ready(instance_id: str, ssm_timeout: int = 120, setup_scri
 def call_ingestion(oldest_time_allowed: datetime, instance_id: str) -> None:
     """ call the data ingestion pipeline on an existing EC2 instance """
     commands = [
-                "cd /opt/classification-pipeline/services/ingestion"
+                "cd /opt/classification-pipeline/services/ingestion",
                 f"uv run python -m ingestion.pipeline {str(oldest_time_allowed)}",
             ]
 
@@ -193,26 +193,6 @@ def main():
     # send a requests.post() trigger to github actions
     # which will download and serve the new weights
     # and the new troop image URLs
-
-
-    
-        
-    
-
-    
-
-
-    
-        
-
-    
-    
-
-    
-    
-
-
-    
 
 
 if __name__ == '__main__':

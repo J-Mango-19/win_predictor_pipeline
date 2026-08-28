@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from urllib3.util import Retry
 from requests.adapters import HTTPAdapter
-from ingestion.config import load_database_credentials
+from common.utils import load_database_credentials
 from common.constants import GAME_MODES
 
 def setup_process_file_logger(log_dir: Path) -> logging.Logger:
