@@ -53,7 +53,7 @@ echo "PostgreSQL is ready!"
 # -------------------------------------------------------------------
 
 echo "==> Downloading database dump from S3 ($S3_BUCKET_PATH)..."
-aws s3 cp "$S3_BUCKET_PATH" "$DUMP_FILE"
+aws s3 cp "$S3_BUCKET_PATH" "$DUMP_FILE" > /dev/null
 
 # -------------------------------------------------------------------
 # Step 5: Execute SQL to Create User/Role
@@ -111,7 +111,7 @@ echo "==> Database restore and permissions setup complete!"
 # step 8: install uv, clone the repo onto this ec2 machine
 echo "==> Installing git and uv..."
 
-dnf install -y git curl
+dnf install -y git
 
 curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
@@ -127,5 +127,6 @@ command -v uv
 test -d /opt/classification-pipeline/services/ingestion
 
 echo "==> Project setup complete!"
+touch /opt/classification-pipeline/.setup-complete
 
 # step 9: let prefect run the ingestion command remotely

@@ -1,12 +1,9 @@
-import sys
-import time
 import boto3
 from prefect import flow, task, get_run_logger
-from botocore.exceptions import WaiterError
 from datetime import datetime
 from pathlib import Path
 from python_terraform import Terraform, TerraformCommandError
-from orchestration.utils import construct_prompt, get_response, extract_json_from_tail
+from orchestration.utils import construct_prompt, get_response, extract_json_from_tail, wait_for_setup_script, wait_for_ec2_status_checks, wait_for_ssm_registration
 from common.constants import PROJECT_ROOT
 from common.utils import run_remote_command
 
@@ -97,53 +94,26 @@ def provision_ingestion_infrastructure(tf_base_dir: str | Path) -> tuple[str, st
     return elastic_ip_allocation_id, instance_profile_name, tmp_instance_id
 
 @task(name="wait-for-instance-ready", retries=0)
-def wait_for_instance_ready(instance_id: str, ssm_timeout_seconds: int = 300, ssm_poll_interval: int = 10) -> None:
+def wait_for_instance_ready(instance_id: str, ssm_timeout: int = 120, setup_script_timeout: int = 300, poll_interval: int = 10) -> None:
     """
     Block until an EC2 instance is fully ready to receive commands:
       1. Passes EC2 status checks (instance + system reachability)
       2. Is registered and pinging with SSM (required for run_remote_command)
+      3. `setup.sh` has completed (indicated with sentinel file)
     """
-    logger = get_run_logger()
     ec2 = boto3.client('ec2', region_name='us-east-2')
     ssm = boto3.client('ssm', region_name='us-east-2')
 
-    # --- Step 1: wait for EC2 status checks ---
-    logger.info(f"Waiting for instance {instance_id} to pass EC2 status checks...")
-    waiter = ec2.get_waiter('instance_status_ok')
-    try:
-        waiter.wait(
-            InstanceIds=[instance_id],
-            WaiterConfig={'Delay': 15, 'MaxAttempts': 40},  # ~10 min ceiling
-        )
-    except WaiterError as e:
-        raise RuntimeError(f"Instance {instance_id} never passed EC2 status checks: {e}")
-    logger.info(f"Instance {instance_id} passed EC2 status checks.")
+    wait_for_ec2_status_checks(ec2, instance_id)
+    wait_for_ssm_registration(ssm, instance_id, ssm_timeout, poll_interval)
+    wait_for_setup_script(ssm, instance_id, setup_script_timeout, poll_interval)
 
-    # --- Step 2: wait for SSM agent to register and report Online ---
-    logger.info(f"Waiting for SSM agent on {instance_id} to come online...")
-    elapsed = 0
-    while elapsed < ssm_timeout_seconds:
-        resp = ssm.describe_instance_information(
-            Filters=[{'Key': 'InstanceIds', 'Values': [instance_id]}]
-        )
-        infos = resp.get('InstanceInformationList', [])
-        if infos and infos[0].get('PingStatus') == 'Online':
-            logger.info(f"SSM agent on {instance_id} is online.")
-            return
-        time.sleep(ssm_poll_interval)
-        elapsed += ssm_poll_interval
-
-    raise RuntimeError(
-        f"SSM agent on {instance_id} did not come online within {ssm_timeout_seconds}s. "
-        f"Check that the instance profile has AmazonSSMManagedInstanceCore and that "
-        f"the SSM agent is installed/running on your AMI."
-    )
 
 @task(name="call_ingestion", retries=0)
 def call_ingestion(oldest_time_allowed: datetime, instance_id: str) -> None:
     """ call the data ingestion pipeline on an existing EC2 instance """
     commands = [
-                "cd /opt/my-project/services/ingestion",
+                "cd /opt/classification-pipeline/services/ingestion"
                 f"uv run python -m ingestion.pipeline {str(oldest_time_allowed)}",
             ]
 
@@ -196,16 +166,16 @@ def main():
 
 
     logger.info(f"Using Terraform base directory: {tf_base_dir}")
+    oldest_time_allowed = datetime.now() 
     elastic_ip_allocation_id, instance_profile_name, tmp_instance_id = provision_ingestion_infrastructure(tf_base_dir=tf_base_dir)
     wait_for_instance_ready(tmp_instance_id)
 
     # 3: Invoke data ingestion
-    oldest_time_allowed = datetime.now() 
     try:
         call_ingestion(oldest_time_allowed, tmp_instance_id) # TODO: modify ingestion code to build the urls dict/json with every troop encountered and send those to S3
     except:
         logger.error("Ingestion failed!!")
-        sys.exit(1) # infra destruction in `finally` will still run before exiting
+        raise # infra destruction in `finally` will still run before exiting
     
     finally:
         # tear down data ingestion infra
@@ -224,6 +194,25 @@ def main():
     # which will download and serve the new weights
     # and the new troop image URLs
 
+
+    
+        
+    
+
+    
+
+
+    
+        
+
+    
+    
+
+    
+    
+
+
+    
 
 
 if __name__ == '__main__':
