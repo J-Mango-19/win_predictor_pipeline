@@ -6,6 +6,8 @@ from python_terraform import Terraform, TerraformCommandError
 from orchestration.utils import construct_prompt, get_response, extract_json_from_tail, wait_for_setup_script, wait_for_ec2_status_checks, wait_for_ssm_registration
 from common.constants import PROJECT_ROOT
 from common.utils import run_remote_command
+from orchestration.prefect_secrets import set_secrets
+from orchestration.prefect_vars import set_vars
 
 
 @task
@@ -158,6 +160,8 @@ def main():
     if not game_changed:
         return
 
+    set_secrets()
+    set_vars()
     logger.info("Initiating Data Collection & Training")
 
 

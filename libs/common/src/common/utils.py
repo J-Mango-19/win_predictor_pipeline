@@ -7,7 +7,7 @@ from prefect.variables import Variable
 def get_api_credentials() -> list[str]:
     """Retrieves encrypted secrets directly from Prefect Cloud Blocks."""
     keys = []
-    for key_name in ["clash-api-key-primary", "clash-api-key-secondary"]:
+    for key_name in ["clash-api-key-1", "clash-api-key-2"]:
         try:
             # Prefect 3.0 Secret Block load pattern
             token = Secret.load(key_name).get()
