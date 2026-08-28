@@ -3,7 +3,7 @@ import psycopg
 import requests
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from services.ingestion.src.ingestion.utils import make_robust_session, setup_process_file_logger, construct_db_URI
+from ingestion.utils import make_robust_session, setup_process_file_logger, construct_db_URI
 
 
 def fetch_and_store_players(session: requests.sessions.Session, clan_id: str, api_key: str, logger: logging.Logger, weeks_since_last_game: int=4) -> list:

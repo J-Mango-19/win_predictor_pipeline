@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-orchestration = "orchestration.orchestrator:main"
+orchestration = "orchestration.orchestrator:cli_run"
 
 [tool.uv.sources]
 common = {path = "../../libs/common", editable = true }

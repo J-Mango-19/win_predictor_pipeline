@@ -195,5 +195,5 @@ def main():
     # and the new troop image URLs
 
 
-if __name__ == '__main__':
+def cli_run():
     main.serve(name="cr-pipeline")
