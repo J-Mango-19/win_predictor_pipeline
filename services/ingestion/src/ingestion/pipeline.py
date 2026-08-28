@@ -15,7 +15,7 @@ from ingestion.config import load_pipeline_config,  StoreActivePlayerIDsConfig, 
 from ingestion.extractors.clans import get_region_IDs, fetch_and_store_clans
 from ingestion.extractors.players import fetch_and_store_players
 from ingestion.extractors.battles import fetch_and_store_games
-from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_path, get_aws_region, get_aws_profile
+from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_path, get_aws_region, get_aws_profile, login_to_prefect
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
 logging.basicConfig(level=logging.INFO)
@@ -230,6 +230,8 @@ def main():
         print("Error: Please provide at least one argument.", file=sys.stderr)
         print("Usage: uv run myscript.py <your_argument>")
         sys.exit(1)
+
+    login_to_prefect()
 
     oldest_time_allowed = datetime.fromisoformat(sys.argv[1])
     config_path = PROJECT_ROOT / "services/ingestion/src/ingestion/config.yaml"

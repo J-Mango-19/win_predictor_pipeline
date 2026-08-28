@@ -1,8 +1,36 @@
+import os
 import time
+import json
 import boto3
 import botocore
+from botocore.exceptions import ClientError
 from prefect.blocks.system import Secret
 from prefect.variables import Variable
+
+def login_to_prefect() -> None:
+    """ Obtains Prefect API key and workspace URL via AWS Secrets Manager, then saves them as environment variables. """
+
+    secret_name = "prefect_login_info"
+    region_name = "us-east-2"
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name="secretsmanager",
+        region_name=region_name,
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        raise e
+
+    secret = json.loads(get_secret_value_response["SecretString"])
+
+    os.environ["PREFECT_API_KEY"] = secret["PREFECT_API_KEY"]
+    os.environ["PREFECT_API_URL"] = secret["PREFECT_API_URL"]
+
 
 def get_api_credentials() -> list[str]:
     """Retrieves encrypted secrets directly from Prefect Cloud Blocks."""
