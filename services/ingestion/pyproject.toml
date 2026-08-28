@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Jack", email = "jcm2022@icloud.com" }
 ]
-requires-python = ">=3.14"
+requires-python = "==3.13.*"
 dependencies = [
     "boto3>=1.43.78",
     "polars>=1.43.2",
@@ -23,6 +23,9 @@ ingestion = "ingestion:main"
 
 [tool.uv.sources]
 common = { path = "../../libs/common", editable = true}
+
+[tool.uv]
+
 
 [build-system]
 requires = ["uv_build>=0.12.2,<0.13.0"]
