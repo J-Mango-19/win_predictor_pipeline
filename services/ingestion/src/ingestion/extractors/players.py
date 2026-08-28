@@ -2,7 +2,7 @@ import logging
 import psycopg
 import requests
 from pathlib import Path
-from dateteime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from services.ingestion.src.ingestion.utils import make_robust_session, setup_process_file_logger, construct_db_URI
 
 
