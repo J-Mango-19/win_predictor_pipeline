@@ -25,7 +25,7 @@ games:
 
 export_clean_dataset:
   max_loser_lvl_advantage: 5
-  dataset_filename: "clean-games-latest"
+  dataset_filename: "clean-games-latest.parquet"
   max_games_chunk: 1_000_000
 
 export_database:

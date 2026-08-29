@@ -70,7 +70,11 @@ def get_s3_bucket_name() -> str:
 
 def get_database_dump_prefix() -> str:
     """ return the prefix to the latest database dump file """
-    return f"{Variable.get("database-dump-prefix")}"
+    return Variable.get("database-dump-prefix")
+
+def get_parquet_dataset_prefix() -> str:
+    """ return the prefix to the cleaned dataset file. """
+    return Variable.get("parquet-dataset-prefix")
 
 def get_aws_region() -> str:
     """ return the AWS region for S3 bucket """

@@ -15,7 +15,7 @@ from ingestion.config import load_pipeline_config,  StoreActivePlayerIDsConfig, 
 from ingestion.extractors.clans import get_region_IDs, fetch_and_store_clans
 from ingestion.extractors.players import fetch_and_store_players
 from ingestion.extractors.battles import fetch_and_store_games
-from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect
+from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect, get_parquet_dataset_prefix
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
 logging.basicConfig(level=logging.INFO)
@@ -99,7 +99,7 @@ def task_export_clean_dataset(
         True if the cleaned dataset was successfully uploaded to S3,
         False if any step failed.
     """
-    dst_s3_path = f"s3://{bucket}/{prefix}{dataset_filename}.parquet"
+    dst_s3_path = f"s3://{bucket}/{prefix}{dataset_filename}"
     storage_options = {"region": aws_region}
  
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -286,14 +286,16 @@ def main():
     )
     
     # we create a clean dataset at each invocation
-    task_export_clean_dataset(
+    export_success = task_export_clean_dataset(
         bucket=get_s3_bucket_name(),
-        prefix=get_database_dump_prefix(),
+        prefix=get_parquet_dataset_prefix(),
         dataset_filename=pipeline_cfg.export_clean_dataset.dataset_filename,
         max_games_chunk=pipeline_cfg.export_clean_dataset.max_games_chunk,
         max_lvl_gap=pipeline_cfg.export_clean_dataset.max_loser_lvl_advantage,
         aws_region=get_aws_region()
     )
+    if not export_success:
+        raise
 
     # save the rest of the database to a .dump file in S3 (w/o the games table)
     task_save_database_dump(
