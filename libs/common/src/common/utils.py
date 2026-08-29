@@ -31,7 +31,6 @@ def login_to_prefect() -> None:
 
     os.environ["PREFECT_API_KEY"] = secret["PREFECT_API_KEY"]
     os.environ["PREFECT_API_URL"] = secret["PREFECT_API_URL"]
-    get_current_settings.cache_clear()
 
 
 def get_api_credentials() -> list[str]:
