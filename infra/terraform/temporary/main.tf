@@ -66,7 +66,7 @@ resource "aws_iam_policy" "prefect_secrets" {
       Action   = "secretsmanager:GetSecretValue",
       Effect   = "Allow",
       # Scoped strictly to the specific secret in your current region/account
-      Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:prefect_secrets-*"
+      Resource = "*"
     }]
   })
 }

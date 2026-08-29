@@ -6,6 +6,7 @@ import botocore
 from botocore.exceptions import ClientError
 from prefect.blocks.system import Secret
 from prefect.variables import Variable
+from prefect.settings import get_current_settings
 
 def login_to_prefect() -> None:
     """ Obtains Prefect API key and workspace URL via AWS Secrets Manager, then saves them as environment variables. """
@@ -30,10 +31,13 @@ def login_to_prefect() -> None:
 
     os.environ["PREFECT_API_KEY"] = secret["PREFECT_API_KEY"]
     os.environ["PREFECT_API_URL"] = secret["PREFECT_API_URL"]
+    get_current_settings.cache_clear()
 
 
 def get_api_credentials() -> list[str]:
     """Retrieves encrypted secrets directly from Prefect Cloud Blocks."""
+    print("DEBUG URL:", os.environ.get("PREFECT_API_URL"))
+    print("DEBUG KEY present:", bool(os.environ.get("PREFECT_API_KEY")))
     keys = []
     for key_name in ["clash-api-key-1", "clash-api-key-2"]:
         try:
