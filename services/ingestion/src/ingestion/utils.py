@@ -57,7 +57,7 @@ def make_robust_session(retries=6, backoff_factor=2, status_forcelist=(504,)) ->
 def construct_db_URI() -> str:
     """ returns the database URI using the parameters from the given JSON file """
     db_params = load_database_credentials()
-    return "postgresql://{db_params['user']}:{db_params['password']}@{db_params['host']}:{db_params['port']}/{db_params['dbname']}".format(**db_params)
+    return f"postgresql://{db_params['user']}:{db_params['password']}@{db_params['host']}:{db_params['port']}/{db_params['dbname']}".format(**db_params)
 
 def make_card_to_idx_mapping() -> dict:
     """ Reads the card_ids table of the database and returns a mapping from card name to card ID. """
