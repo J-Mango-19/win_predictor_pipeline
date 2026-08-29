@@ -76,10 +76,6 @@ def get_aws_region() -> str:
     """ return the AWS region for S3 bucket """
     return Variable.get("aws-region")
 
-def get_aws_profile() -> str:   
-    """ return the AWS profile for S3 bucket """
-    return Variable.get("aws-profile")
-
 def run_remote_command(instance_id: str, commands: list[str], status_check_interval: int=300) -> str:
     """ Runs a shell command on the remote AWS instance with instance_id. """
     ssm = boto3.client("ssm", region_name=get_aws_region())

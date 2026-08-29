@@ -15,7 +15,7 @@ from ingestion.config import load_pipeline_config,  StoreActivePlayerIDsConfig, 
 from ingestion.extractors.clans import get_region_IDs, fetch_and_store_clans
 from ingestion.extractors.players import fetch_and_store_players
 from ingestion.extractors.battles import fetch_and_store_games
-from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_path, get_aws_region, get_aws_profile, login_to_prefect
+from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_path, get_aws_region, login_to_prefect
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
 logging.basicConfig(level=logging.INFO)
@@ -87,7 +87,6 @@ def task_export_clean_dataset(
     dataset_filename: str,
     max_games_chunk: int,
     max_lvl_gap: float,
-    aws_profile: str,
     aws_region: str
 ) -> bool:
     """
@@ -101,7 +100,7 @@ def task_export_clean_dataset(
         False if any step failed.
     """
     dst_s3_path = f"s3://{bucket}/{prefix}{dataset_filename}.parquet"
-    storage_options = {"profile": aws_profile, "region": aws_region}
+    storage_options = {"region": aws_region}
  
     with tempfile.TemporaryDirectory() as tmpdir:
         chunk_paths: list[Path] = []
@@ -172,7 +171,6 @@ def task_save_database_dump(
     bucket: str,
     prefix: str,
     filename: str,
-    aws_profile: str,
     aws_region: str,
 ) -> None:
     """
@@ -204,7 +202,7 @@ def task_save_database_dump(
             check=True,
         )
     # 3. AWS S3 Client setup
-    session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
+    session = boto3.Session(region_name=aws_region)
     s3_client = session.client("s3")
 
     prefix_clean = prefix.rstrip('/')
@@ -294,7 +292,6 @@ def main():
         dataset_filename=pipeline_cfg.export_clean_dataset.dataset_filename,
         max_games_chunk=pipeline_cfg.export_clean_dataset.max_games_chunk,
         max_lvl_gap=pipeline_cfg.export_clean_dataset.max_loser_lvl_advantage,
-        aws_profile=get_aws_profile(),
         aws_region=get_aws_region()
     )
 
@@ -303,7 +300,6 @@ def main():
         bucket=get_s3_bucket_name(),
         prefix=get_database_dump_path(),
         filename=pipeline_cfg.save_db.database_dump_filename,
-        aws_profile=get_aws_profile(),
         aws_region=get_aws_region()
     )
 
