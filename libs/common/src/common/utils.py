@@ -4,6 +4,7 @@ import json
 import boto3
 import botocore
 from botocore.exceptions import ClientError
+from prefect.context import refresh_global_settings_context
 from prefect.blocks.system import Secret
 from prefect.variables import Variable
 from prefect.settings import get_current_settings
@@ -31,6 +32,7 @@ def login_to_prefect() -> None:
 
     os.environ["PREFECT_API_KEY"] = secret["PREFECT_API_KEY"]
     os.environ["PREFECT_API_URL"] = secret["PREFECT_API_URL"]
+    refresh_global_settings_context()
 
 
 def get_api_credentials() -> list[str]:
