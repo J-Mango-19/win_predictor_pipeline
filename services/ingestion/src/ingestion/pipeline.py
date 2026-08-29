@@ -190,11 +190,19 @@ def task_save_database_dump(
 
     # 2. Dump the database to a .dump file using pg_dump
     db_dump_dst = PROJECT_ROOT / f"services/ingestion/src/ingestion/{filename}"
-    subprocess.run(
-        ["pg_dump", "-Fc", "-f", db_dump_dst, db_uri],
-        check=True
-    )
-
+    with db_dump_dst.open("wb") as dump_file:
+        subprocess.run(
+            [
+                "docker",
+                "exec",
+                "postgres",
+                "pg_dump",
+                "-Fc",
+                db_uri,
+            ],
+            stdout=dump_file,
+            check=True,
+        )
     # 3. AWS S3 Client setup
     session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
     s3_client = session.client("s3")
@@ -223,7 +231,7 @@ def task_save_database_dump(
             raise
 
     # 5. Upload the new dump file to S3
-    s3_client.upload_file(filename, bucket, s3_key)
+    s3_client.upload_file(db_dump_dst, bucket, s3_key)
 
 
 def main():
