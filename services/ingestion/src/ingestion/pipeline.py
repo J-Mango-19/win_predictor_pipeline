@@ -136,8 +136,7 @@ def task_export_clean_dataset(
                             gc.collect()
                             idx += 1
         except Exception:
-            logger.exception("Failed while reading `games` from Postgres.")
-            return False
+            raise
  
         if not chunk_paths:
             logger.warning("`games` returned no rows; nothing to upload.")
@@ -160,8 +159,7 @@ def task_export_clean_dataset(
                 .sink_parquet(dst_s3_path, storage_options=storage_options)
             )
         except Exception:
-            logger.exception(f"Failed while cleaning/uploading to {dst_s3_path}.")
-            return False
+            raise
  
     logger.info(f"Successfully uploaded cleaned games dataset to {dst_s3_path}.")
     return True
