@@ -37,8 +37,6 @@ def login_to_prefect() -> None:
 
 def get_api_credentials() -> list[str]:
     """Retrieves encrypted secrets directly from Prefect Cloud Blocks."""
-    print("DEBUG URL:", os.environ.get("PREFECT_API_URL"))
-    print("DEBUG KEY present:", bool(os.environ.get("PREFECT_API_KEY")))
     keys = []
     for key_name in ["clash-api-key-1", "clash-api-key-2"]:
         try:

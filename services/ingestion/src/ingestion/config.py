@@ -30,7 +30,7 @@ class GlobalPipelineConfig(BaseModel):
     clear_logs: bool = Field(default=True, description="Whether to clear log files prior to execution.")
     setup_db: bool = Field(default=False, description="First time setup flag to build database tables.")
     worker_log_dir: str = Field(default="logs", description="Directory to store worker log files. Main process logs go to prefect cloud.")
-    max_processes_per_api_key: int = Field(default=5, description="Max number of parallel processes to run per CR API key.")
+    procs_per_api_key: int = Field(default=5, description="Max number of parallel processes to run per CR API key.")
 
 class SaveDatabaseConfig(BaseModel):
     database_dump_filename: str = Field(default="latest_cr_db.dump", description="filename for persistent database dump in S3")

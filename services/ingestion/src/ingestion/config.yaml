@@ -1,7 +1,7 @@
 global_opts:
   clear_logs: true
   log_dir: "classification-pipeline/gather_dataset/worker_process_logs"
-  max_processes_per_cr_api_key: 5
+  procs_per_api_key: 5 # the maximum number of collection processes to share an API key
   setup_db: false
 
 clan_ids:
