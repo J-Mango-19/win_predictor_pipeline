@@ -139,8 +139,8 @@ def task_export_clean_dataset(
             raise
  
         if not chunk_paths:
-            logger.warning("`games` returned no rows; nothing to upload.")
-            return False
+            raise ValueError("`games` returned no rows; nothing to upload.")
+        
  
         # ---- Step 2: stream-filter the local chunks, sink straight to S3 ----
         # We keep games where: loser_avg <= winner_avg + gap
