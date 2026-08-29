@@ -189,8 +189,9 @@ def task_save_database_dump(
         conn.commit()
 
     # 2. Dump the database to a .dump file using pg_dump
+    db_dump_dst = PROJECT_ROOT / f"services/ingestion/src/ingestion/{filename}"
     subprocess.run(
-        ["pg_dump", "-Fc", "-f", filename, db_uri],
+        ["pg_dump", "-Fc", "-f", db_dump_dst, db_uri],
         check=True
     )
 

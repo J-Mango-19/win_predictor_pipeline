@@ -65,7 +65,6 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'pipeline_worker') THEN
     CREATE ROLE pipeline_worker WITH LOGIN PASSWORD 'testpassword';
     ALTER ROLE pipeline_worker WITH CREATEDB REPLICATION LOGIN;
-    ALTER TABLE games OWNER TO your_pipeline_db_user;
   END IF;
 END
 \$\$;"
@@ -94,6 +93,7 @@ docker exec postgres rm /tmp/database.dump
 echo "==> Granting permissions to pipeline_worker..."
 docker exec -i postgres psql -U postgres -d "$RESTORED_DB_NAME" -c "
 -- Grant database & schema access
+ALTER TABLE games OWNER TO pipeline_worker;
 GRANT ALL PRIVILEGES ON DATABASE $RESTORED_DB_NAME TO pipeline_worker;
 GRANT ALL ON SCHEMA public TO pipeline_worker;
 

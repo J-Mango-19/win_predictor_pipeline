@@ -2,7 +2,6 @@ from pathlib import Path
 
 CONSTANTS_FILE_PATH = Path(__file__).resolve()
 PROJECT_ROOT = CONSTANTS_FILE_PATH.parents[4]
-print(PROJECT_ROOT)
 
 
 GAME_COLS = [
