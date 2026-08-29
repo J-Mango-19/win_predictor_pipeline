@@ -74,7 +74,7 @@ def task_store_games(cfg: StoreGamesConfig, cr_api_keys: list[str], worker_log_d
                 logger.warning(f"Ran out of API keys to use for workers; using only {i} workers instead of {cfg.num_workers}")
                 break
                 
-        pool_args.append((cr_api_keys[api_key_idx], oldest_time_allowed, cfg.game_modes_allowed, cfg.inactivity_threshold_wks, card_to_idx, worker_log_dir, cfg.soft_games_limit))
+        pool_args.append((cr_api_keys[api_key_idx], oldest_time_allowed, cfg.game_modes_allowed, cfg.inactivity_threshold_weeks, card_to_idx, worker_log_dir, cfg.soft_games_limit))
 
     with Pool(processes=len(pool_args)) as pool:
         pool.starmap(fetch_and_store_games, pool_args)
