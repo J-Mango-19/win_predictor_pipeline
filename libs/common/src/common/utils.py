@@ -68,9 +68,9 @@ def get_s3_bucket_name() -> str:
     """ return the name of the S3 bucket to store the clean dataset """
     return Variable.get("s3-bucket-name")
 
-def get_database_dump_path() -> str:
-    """ return the path to the latest database dump file """
-    return Variable.get("s3-dump-path")
+def get_database_dump_prefix() -> str:
+    """ return the prefix to the latest database dump file """
+    return f"{Variable.get("database-dump-prefix")}"
 
 def get_aws_region() -> str:
     """ return the AWS region for S3 bucket """
