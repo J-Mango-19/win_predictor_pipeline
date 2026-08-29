@@ -65,6 +65,7 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'pipeline_worker') THEN
     CREATE ROLE pipeline_worker WITH LOGIN PASSWORD 'testpassword';
     ALTER ROLE pipeline_worker WITH CREATEDB REPLICATION LOGIN;
+    ALTER TABLE games OWNER TO your_pipeline_db_user;
   END IF;
 END
 \$\$;"
