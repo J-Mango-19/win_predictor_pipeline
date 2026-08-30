@@ -18,7 +18,7 @@ active_players:
   force_store_players: false 
 
 games:
-  num_workers: 8
+  num_workers: 10
   inactivity_threshold_weeks: 2
   game_modes_allowed: ["draft", "triple draft", "mega draft", "ladder", "ranked ladder"]
   soft_games_limit: 500_000

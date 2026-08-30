@@ -2,7 +2,7 @@
 set -e
 
 # Configuration variables
-S3_BUCKET_PATH="s3://cr-games-bucket/database/backup.dump"  
+SOURCE_DB_PATH="latest_cr_db.dump"
 DUMP_FILE="/tmp/database.dump"
 RESTORED_DB_NAME="cr_games"
 
@@ -52,8 +52,8 @@ echo "PostgreSQL is ready!"
 # Step 4: Download the Database Dump from S3
 # -------------------------------------------------------------------
 
-echo "==> Downloading database dump from S3 ($S3_BUCKET_PATH)..."
-aws s3 cp "$S3_BUCKET_PATH" "$DUMP_FILE" > /dev/null
+echo "==> Downloading database dump from S3 ($SOURCE_DB_PATH)..."
+aws s3 cp "$SOURCE_DB_PATH" "$DUMP_FILE" > /dev/null
 
 # -------------------------------------------------------------------
 # Step 5: Execute SQL to Create User/Role

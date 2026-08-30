@@ -139,6 +139,12 @@ def get_card_idx(card: dict, name_to_idx: dict, logger) -> int:
             with conn.cursor() as cur:
                 cur.execute(get_or_create_sql, (name, name))
                 result = cur.fetchone()
+
+                # Race condition triggered: Process A inserted it, but it wasn't visible 
+                # to Process B's original snapshot.
+                if not result:
+                    cur.execute("SELECT id FROM card_ids WHERE name = %s", (name,))
+                    result = cur.fetchone()
                 
                 if result:
                     idx = result[0]
