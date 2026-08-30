@@ -2,7 +2,7 @@
 set -e
 
 # Configuration variables
-SOURCE_DB_PATH="latest_cr_db.dump"
+SOURCE_DB_PATH="s3://cr-games-bucket/database/latest_cr_db.dump"
 DUMP_FILE="/tmp/database.dump"
 RESTORED_DB_NAME="cr_games"
 
@@ -77,10 +77,12 @@ echo "==> Copying dump file and restoring database..."
 docker cp "$DUMP_FILE" postgres:/tmp/database.dump
 
 # Connect to the default 'postgres' database and execute -C (Create DB) restore
+docker exec postgres psql -U postgres -c "CREATE DATABASE ${RESTORED_DB_NAME};"
+
+# 2. Restore into that specific database
 docker exec postgres pg_restore \
   -U postgres \
-  -d postgres \
-  -C \
+  -d "${RESTORED_DB_NAME}" \
   --no-owner \
   /tmp/database.dump
 
