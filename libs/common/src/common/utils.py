@@ -8,6 +8,7 @@ from prefect.context import refresh_global_settings_context
 from prefect.blocks.system import Secret
 from prefect.variables import Variable
 from prefect.settings import get_current_settings
+from functools import lru_cache
 
 def login_to_prefect() -> None:
     """ Obtains Prefect API key and workspace URL via AWS Secrets Manager, then saves them as environment variables. """
@@ -48,6 +49,7 @@ def get_api_credentials() -> list[str]:
             raise ValueError("No clash royale API keys found!")
     return keys
 
+@lru_cache(maxsize=1)
 def load_database_credentials() -> dict:
     """Retrieves encrypted database credentials directly from Prefect Cloud Blocks."""
 

@@ -94,6 +94,7 @@ echo "==> Granting permissions to pipeline_worker..."
 docker exec -i postgres psql -U postgres -d "$RESTORED_DB_NAME" -c "
 -- Grant database & schema access
 ALTER TABLE games OWNER TO pipeline_worker;
+ALTER TABLE active_players OWNER TO pipeline_worker;
 GRANT ALL PRIVILEGES ON DATABASE $RESTORED_DB_NAME TO pipeline_worker;
 GRANT ALL ON SCHEMA public TO pipeline_worker;
 
