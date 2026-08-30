@@ -171,6 +171,8 @@ def main():
 
     logger.info(f"Using Terraform base directory: {tf_base_dir}")
     oldest_time_allowed = datetime.now() 
+    from datetime import timedelta
+    oldest_time_allowed = oldest_time_allowed - timedelta(weeks=2); print("HARDCODED oldest_time_allowed to be more forgiving for development")
     elastic_ip_allocation_id, instance_profile_name, tmp_instance_id = provision_ingestion_infrastructure(tf_base_dir=tf_base_dir)
     wait_for_instance_ready(tmp_instance_id)
 
@@ -183,6 +185,8 @@ def main():
     
     finally:
         # tear down data ingestion infra
+        import time
+        time.sleep(5 * 60)
         logger.info("destroying ephemeral infra")
         destroy_ingestion_infrastructure(tf_base_dir, elastic_ip_allocation_id, instance_profile_name)
     

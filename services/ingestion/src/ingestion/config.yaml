@@ -1,6 +1,6 @@
 global_opts:
   clear_logs: true
-  log_dir: "classification-pipeline/gather_dataset/worker_process_logs"
+  worker_log_dir: "worker_logs"
   procs_per_api_key: 5 # the maximum number of collection processes to share an API key
   setup_db: false
 

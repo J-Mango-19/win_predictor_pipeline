@@ -65,6 +65,16 @@ def task_store_games(cfg: StoreGamesConfig, cr_api_keys: list[str], worker_log_d
     logger.info("starting process pool for storing games")
     card_to_idx = make_card_to_idx_mapping()
 
+
+    # pre-req: ensure that no player_id's in active_players are claimed
+    release_claims_sql = """
+    UPDATE active_players
+    SET claimed=FALSE;
+    """
+    with psycopg.connect(construct_db_URI()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(release_claims_sql)
+
     pool_args = []
     api_key_idx = 0
     for i in range(cfg.num_workers):
