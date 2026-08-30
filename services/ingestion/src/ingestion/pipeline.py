@@ -15,7 +15,7 @@ from ingestion.config import load_pipeline_config,  StoreActivePlayerIDsConfig, 
 from ingestion.extractors.clans import get_region_IDs, fetch_and_store_clans
 from ingestion.extractors.players import fetch_and_store_players
 from ingestion.extractors.battles import fetch_and_store_games
-from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect, get_parquet_dataset_prefix
+from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect, get_parquet_dataset_prefix, ensure_utc
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
 logging.basicConfig(level=logging.INFO)
@@ -248,7 +248,9 @@ def main():
 
     login_to_prefect()
 
-    oldest_time_allowed = datetime.fromisoformat(sys.argv[1])
+    # A naive timestamp on the CLI is interpreted as UTC so it stays comparable
+    # with the timezone-aware battle times pulled from the API.
+    oldest_time_allowed = ensure_utc(datetime.fromisoformat(sys.argv[1]))
     config_path = PROJECT_ROOT / "services/ingestion/src/ingestion/config.yaml"
     pipeline_cfg = load_pipeline_config(config_path)
 

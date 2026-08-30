@@ -4,6 +4,7 @@ import requests
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from ingestion.utils import make_robust_session, setup_process_file_logger, construct_db_URI
+from common.utils import parse_api_timestamp
 
 
 def fetch_and_store_players(session: requests.sessions.Session, clan_id: str, api_key: str, logger: logging.Logger, weeks_since_last_game: int=4) -> list:
@@ -34,9 +35,9 @@ def fetch_and_store_players(session: requests.sessions.Session, clan_id: str, ap
             continue
             
         try:
-            # Parse the API string format: "20260611T030424.000Z"
-            # .replace(tzinfo=timezone.utc) makes it safe to compare with modern UTC datetimes
-            last_seen_dt = datetime.strptime(last_seen_str, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc)
+            # Parse the API string format ("20260611T030424.000Z") into a
+            # timezone-aware UTC datetime, safe to compare with cutoff_time.
+            last_seen_dt = parse_api_timestamp(last_seen_str)
             
             # Check if the player was seen within the 6-week window
             if last_seen_dt >= cutoff_time:

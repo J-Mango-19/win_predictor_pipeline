@@ -4,8 +4,9 @@ import psycopg
 import requests
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from ingestion.utils import make_robust_session, setup_process_file_logger, construct_db_URI, translate_gameModes_to_apiNames 
-from common.constants import INVALID_TOKEN, GAME_COLS 
+from ingestion.utils import make_robust_session, setup_process_file_logger, construct_db_URI, translate_gameModes_to_apiNames
+from common.constants import INVALID_TOKEN, GAME_COLS
+from common.utils import ensure_utc, parse_api_timestamp
 
 
 def get_battle_log(player_tag: str, session: requests.sessions.Session, api_key: str, logger) -> list:
@@ -58,9 +59,10 @@ def filter_by_time(battles: list, time_boundary: datetime) -> list:
     Returns:
         a list of battles that are more recent than time_boundary
     """
+    time_boundary = ensure_utc(time_boundary)
     recent_battles = []
     for battle in battles:
-        if datetime.fromisoformat(battle['battleTime']) > time_boundary:
+        if parse_api_timestamp(battle['battleTime']) > time_boundary:
             recent_battles.append(battle)
     
     return recent_battles
@@ -228,7 +230,7 @@ def is_recently_active(battles: list, weeks: int) -> bool:
         return False # no battles logged, so player not active
 
     cutoff_time = datetime.now(timezone.utc) - timedelta(weeks=weeks)
-    most_recent_battle_time = datetime.fromisoformat(battles[0]['battleTime'])
+    most_recent_battle_time = parse_api_timestamp(battles[0]['battleTime'])
 
     return most_recent_battle_time > cutoff_time
 

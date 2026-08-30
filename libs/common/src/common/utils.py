@@ -3,12 +3,32 @@ import time
 import json
 import boto3
 import botocore
+from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 from prefect.context import refresh_global_settings_context
 from prefect.blocks.system import Secret
 from prefect.variables import Variable
 from prefect.settings import get_current_settings
 from functools import lru_cache
+
+def ensure_utc(dt: datetime) -> datetime:
+    """Return `dt` as a timezone-aware UTC datetime.
+
+    Naive datetimes are assumed to already be in UTC (every datetime this
+    codebase produces is UTC); aware datetimes are converted to UTC. The result
+    is always safe to compare against other `ensure_utc` outputs without
+    triggering "can't compare offset-naive and offset-aware datetimes".
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def parse_api_timestamp(s: str) -> datetime:
+    """Parse a Clash Royale API timestamp (e.g. "20260611T030424.000Z") into a
+    timezone-aware UTC datetime."""
+    return ensure_utc(datetime.fromisoformat(s))
+
 
 def login_to_prefect() -> None:
     """ Obtains Prefect API key and workspace URL via AWS Secrets Manager, then saves them as environment variables. """
