@@ -1,7 +1,7 @@
 global_opts:
   clear_logs: true
   worker_log_dir: "worker_logs"
-  procs_per_api_key: 3 # the maximum number of collection processes to share an API key
+  procs_per_api_key: 4 # the maximum number of collection processes to share an API key
   setup_db: false
 
 clan_ids:
@@ -18,7 +18,7 @@ active_players:
   force_store_players: false 
 
 games:
-  num_workers: 6
+  num_workers: 12
   inactivity_threshold_weeks: 2
   game_modes_allowed: ["draft", "triple draft", "mega draft", "ladder", "ranked ladder"]
   soft_games_limit: 250_000
