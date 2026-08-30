@@ -124,7 +124,6 @@ def wait_for_setup_script(ssm, instance_id: str, timeout: int = 600, poll_interv
 
         # Sentinel doesn't exist yet, so setup is presumably still running.
         time.sleep(poll_interval)
-        logger.info(f"{invocation['Status']=}")
 
     raise TimeoutError(
         f"Instance {instance_id} did not finish setup within {timeout} seconds"

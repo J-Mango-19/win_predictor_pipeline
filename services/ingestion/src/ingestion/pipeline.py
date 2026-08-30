@@ -68,8 +68,8 @@ def task_store_games(cfg: StoreGamesConfig, cr_api_keys: list[str], worker_log_d
 
     # pre-req: ensure that no player_id's in active_players are claimed
     release_claims_sql = """
-    UPDATE active_players
-    SET claimed=FALSE;
+    ALTER TABLE active_players DROP COLUMN claimed;
+    ALTER TABLE active_players ADD COLUMN claimed BOOLEAN NOT NULL DEFAULT FALSE;
     """
     with psycopg.connect(construct_db_URI()) as conn:
         with conn.cursor() as cur:

@@ -111,8 +111,6 @@ resource "aws_security_group" "postgres" {
 resource "aws_instance" "postgres" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "m7i-flex.large"
-
-  # Continues to use the persistent profile, which now has the new secrets policy attached
   iam_instance_profile = var.instance_profile_name
 
   key_name = "Test Key Pair"
@@ -120,6 +118,12 @@ resource "aws_instance" "postgres" {
   vpc_security_group_ids = [
     aws_security_group.postgres.id
   ]
+
+  root_block_device {
+    volume_size           = 100
+    volume_type           = "gp3"
+    delete_on_termination = true
+  }
 
   user_data = file("${path.module}/setup.sh")
 

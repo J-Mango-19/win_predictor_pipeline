@@ -185,8 +185,6 @@ def main():
     
     finally:
         # tear down data ingestion infra
-        import time
-        time.sleep(5 * 60)
         logger.info("destroying ephemeral infra")
         destroy_ingestion_infrastructure(tf_base_dir, elastic_ip_allocation_id, instance_profile_name)
     
