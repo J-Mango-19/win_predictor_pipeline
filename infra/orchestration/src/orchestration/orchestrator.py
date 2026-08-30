@@ -1,6 +1,6 @@
 import boto3
 from prefect import flow, task, get_run_logger
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from python_terraform import Terraform, TerraformCommandError
 from orchestration.utils import construct_prompt, get_response, extract_json_from_tail, wait_for_setup_script, wait_for_ec2_status_checks, wait_for_ssm_registration
@@ -170,7 +170,7 @@ def main():
 
 
     logger.info(f"Using Terraform base directory: {tf_base_dir}")
-    oldest_time_allowed = datetime.now() 
+    oldest_time_allowed = datetime.now(timezone.utc) 
     from datetime import timedelta
     oldest_time_allowed = oldest_time_allowed - timedelta(weeks=2); print("HARDCODED oldest_time_allowed to be more forgiving for development")
     elastic_ip_allocation_id, instance_profile_name, tmp_instance_id = provision_ingestion_infrastructure(tf_base_dir=tf_base_dir)

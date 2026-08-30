@@ -100,7 +100,7 @@ def create_db_tables() -> None:
 
             # Create games table
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS new_games (
+                CREATE TABLE IF NOT EXISTS games (
                     winner_id VARCHAR(12) NOT NULL,
                     loser_id VARCHAR(12) NOT NULL,
                     time TIMESTAMPTZ NOT NULL,
@@ -121,8 +121,8 @@ def create_db_tables() -> None:
                     loser_card_6_level INT, loser_card_7_level INT
                 );
                 
-                CREATE UNIQUE INDEX IF NOT EXISTS new_games_unique_game
-                    ON new_games (winner_id, loser_id, time);
+                CREATE UNIQUE INDEX IF NOT EXISTS games_unique_game
+                    ON games (winner_id, loser_id, time);
             """)
 
             # create card IDs table
