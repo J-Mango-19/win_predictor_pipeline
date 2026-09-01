@@ -188,10 +188,10 @@ def task_save_database_dump(
 
     db_uri = construct_db_URI()
 
-    # 1. Delete the games table and commit changes
+    # Clear the games table and commit changes
     with psycopg.connect(db_uri) as conn:
-        with conn.cursor() as curr:
-            curr.execute("DROP TABLE IF EXISTS games CASCADE;")
+        with conn.cursor() as cur:
+            cur.execute("TRUNCATE TABLE games CASCADE;")
         conn.commit()
 
     # 2. Dump the database to a .dump file using pg_dump
