@@ -112,7 +112,7 @@ def get_model_weights_prefix() -> str:
 
 def get_wandb_api_key() -> str:
     """ return the wandb api key corresponding to the acct to log training progress on """
-    return Secret.load("wandb_api_key").get()
+    return Secret.load("wandb-api-key").get()
 
 def get_wandb_project_name() -> str:
     """ return the wandb project name where the run metrics are to be recorded """
