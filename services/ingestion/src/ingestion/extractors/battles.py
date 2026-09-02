@@ -281,7 +281,7 @@ def claim_player_ids(max_player_ids: int, logger) -> list:
     return claimed_player_ids
 
 
-def fetch_and_store_games(api_key: str, oldest_time_allowed: datetime, game_modes_allowed: list, inactivity_limit_wks: int, card_to_idx: dict, log_dir: Path, soft_games_limit: int, write_player_chunk_size: int=500, read_player_chunk_size: int=10_000) -> None:
+def fetch_and_store_games(api_key: str, oldest_time_allowed: datetime, game_modes_allowed: list, inactivity_limit_wks: int, card_to_idx: dict, log_dir: Path, soft_games_limit: int, write_player_chunk_size: int=500, read_player_chunk_size: int=5_000) -> None:
     """
     While there are unclaimed players in the active_players table... 
         - claims a chunk of players from the active_players table

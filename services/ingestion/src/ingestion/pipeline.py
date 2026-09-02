@@ -329,7 +329,7 @@ def main():
 
     # Save the log to the same directory in S3 as the dataset
     s3_client = boto3.client("s3")
-    s3_client.upload_file(log_path, get_s3_bucket_name(), os.path.join(get_parquet_dataset_prefix()),  "pipeline.log")
+    s3_client.upload_file(log_path, get_s3_bucket_name(), os.path.join(get_parquet_dataset_prefix(),  "pipeline.log"))
 
 if __name__ == '__main__':
     main()
