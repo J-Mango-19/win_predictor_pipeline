@@ -11,7 +11,7 @@ from training.config import ModelConfig, TrainingConfig
 from common.utils import (
     get_wandb_api_key,
     get_wandb_project_name,
-    get_wanbd_entity,
+    get_wandb_entity,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ def train(
     login_to_wandb()
     run = wandb.init(
         project=get_wandb_project_name(),
-        entity=get_wanbd_entity(),
+        entity=get_wandb_entity(),
         config={
             **(model_cfg.model_dump() if model_cfg is not None else {}),
             **cfg.model_dump(),

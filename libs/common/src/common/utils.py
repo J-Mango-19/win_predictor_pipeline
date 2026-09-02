@@ -122,15 +122,24 @@ def get_wandb_entity() -> str:
     """ return the preferred entity that's writing run metrics to wandb """
     return Variable.get("entity")
 
-def run_remote_command(instance_id: str, commands: list[str], status_check_interval: int=300) -> str:
-    """ Runs a shell command on the remote AWS instance with instance_id. """
+def run_remote_command(instance_id: str, commands: list[str], status_check_interval: int=300, execution_timeout: int | None=None) -> str:
+    """ Runs a shell command on the remote AWS instance with instance_id.
+
+    `execution_timeout` is how many seconds SSM lets the command run before
+    killing it as TimedOut. Left unset, SSM applies its own default of one hour
+    -- fine for ingestion, but far too short for a training run, which should
+    pass the AWS-RunShellScript maximum of 172800 (48h).
+    """
     ssm = boto3.client("ssm", region_name=get_aws_region())
+
+    parameters = {"commands": commands}
+    if execution_timeout is not None:
+        parameters["executionTimeout"] = [str(execution_timeout)]
+
     response = ssm.send_command(
         InstanceIds=[instance_id],
         DocumentName="AWS-RunShellScript",
-        Parameters={
-            "commands": commands
-        },
+        Parameters=parameters,
     )
 
     command_id = response["Command"]["CommandId"]
