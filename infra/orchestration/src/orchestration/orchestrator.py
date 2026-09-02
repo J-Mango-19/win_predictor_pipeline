@@ -1,4 +1,7 @@
+import subprocess
+import time
 import boto3
+from botocore.exceptions import ClientError
 from prefect import flow, task, get_run_logger
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +20,64 @@ TRAINING_EXECUTION_TIMEOUT = 172800
 # wheels, which comfortably outlasts wait_for_instance_ready's 300s default.
 TRAINING_SETUP_TIMEOUT = 1800
 TRAINING_SSM_TIMEOUT = 300
+# main.tf caps the instance's own delete at 10 minutes; this is the budget for
+# the whole destroy, after which the terminate fallback takes over.
+TRAINING_DESTROY_TIMEOUT = 900
+AWS_REGION = "us-east-2"
+
+
+def _run_terraform(
+    working_dir: Path,
+    subcommand: str,
+    logger,
+    tf_vars: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> int:
+    """Run a terraform subcommand, streaming its output into the Prefect logs.
+
+    python_terraform buffers the whole run behind `capture_output=True` and
+    offers no timeout, so a destroy waiting on an unresponsive instance printed
+    nothing for twenty minutes and was indistinguishable from a hung flow. This
+    streams each line as terraform emits it (including its periodic "Still
+    destroying..." ticks) and gives up once `timeout` seconds have passed.
+    """
+    cmd = [
+        "terraform",
+        f"-chdir={working_dir}",
+        subcommand,
+        "-no-color",
+        "-input=false",
+        "-lock-timeout=60s",
+    ]
+    if subcommand in {"apply", "destroy"}:
+        cmd.append("-auto-approve")
+    for key, value in (tf_vars or {}).items():
+        cmd.extend(["-var", f"{key}={value}"])
+
+    logger.info(f"$ {' '.join(cmd)}")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    deadline = None if timeout is None else time.monotonic() + timeout
+    try:
+        for line in process.stdout:
+            logger.info(line.rstrip())
+            if deadline is not None and time.monotonic() > deadline:
+                logger.error(
+                    f"terraform {subcommand} exceeded its {timeout}s budget; killing it."
+                )
+                process.kill()
+                break
+        return process.wait()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
 
 
 @task
@@ -175,42 +236,30 @@ def provision_training_infrastructure(tf_training_dir: str | Path, tf_persistent
 
     # Step 1: Ensure persistent infrastructure exists
     logger.info(f"Applying persistent infrastructure in {persistent_dir}...")
-    return_code, stdout, stderr = tf_persistent.apply(
-        skip_plan=True,
-        capture_output=True
-    )
+    return_code = _run_terraform(persistent_dir, "apply", logger)
     if return_code != 0:
-        raise TerraformCommandError(return_code, "terraform apply (persistent)", stdout, stderr)
+        raise TerraformCommandError(return_code, "terraform apply (persistent)", None, None)
 
     # Pull the outputs we need for the temporary infra
     persistent_outputs = tf_persistent.output()
     instance_profile_name = persistent_outputs["instance_profile_name"]['value']
     logger.info(f"Collected persistent outputs: instance_profile_name={instance_profile_name}")
 
+    tf_vars = {"instance_profile_name": instance_profile_name}
+
     # Step 2: Tear down lingering temporary infrastructure
     logger.info(f"Destroying stale temporary infrastructure in {temporary_dir}...")
-    return_code, stdout, stderr = tf_temporary.destroy(
-        force=None,
-        auto_approve=True,
-        capture_output=True,
-        var={
-            "instance_profile_name": instance_profile_name,
-        },
+    return_code = _run_terraform(
+        temporary_dir, "destroy", logger, tf_vars, timeout=TRAINING_DESTROY_TIMEOUT
     )
     if return_code != 0:
-        raise TerraformCommandError(return_code, "terraform destroy (temporary)", stdout, stderr)
+        raise TerraformCommandError(return_code, "terraform destroy (temporary)", None, None)
 
     # Step 3: Rebuild temporary infrastructure, passing in persistent outputs
     logger.info(f"Applying fresh temporary infrastructure in {temporary_dir}...")
-    return_code, stdout, stderr = tf_temporary.apply(
-        skip_plan=True,
-        capture_output=True,
-        var={
-            "instance_profile_name": instance_profile_name,
-        },
-    )
+    return_code = _run_terraform(temporary_dir, "apply", logger, tf_vars)
     if return_code != 0:
-        raise TerraformCommandError(return_code, "terraform apply (temporary)", stdout, stderr)
+        raise TerraformCommandError(return_code, "terraform apply (temporary)", None, None)
 
     logger.info("Infrastructure lifecycle initialized successfully.")
 
@@ -239,25 +288,56 @@ def call_training(instance_id: str) -> None:
 
 
 @task(name="destroy-training-infrastructure", retries=0)
-def destroy_training_infrastructure(tf_training_dir: str | Path, instance_profile_name: str) -> None:
+def destroy_training_infrastructure(
+    tf_training_dir: str | Path,
+    instance_profile_name: str,
+    instance_id: str | None = None,
+) -> None:
+    """Tear down the GPU stack, terminating the instance directly if terraform can't.
+
+    A destroy that fails or runs past its budget used to leave the box running
+    and billing -- the task has no retries, and the flow was already unwinding.
+    So `instance_id` gets terminated through the EC2 API as a backstop, and
+    terraform is then re-run to reconcile the state file.
+    """
     logger = get_run_logger()
     temporary_dir = Path(tf_training_dir).resolve()
-
-    tf_temporary = Terraform(working_dir=str(temporary_dir))
+    tf_vars = {"instance_profile_name": instance_profile_name}
 
     logger.info(f"Destroying temporary infrastructure in {temporary_dir}...")
-    return_code, stdout, stderr = tf_temporary.destroy(
-        force=None,
-        auto_approve=True,
-        capture_output=True,
-        var={
-            "instance_profile_name": instance_profile_name,
-        },
+    return_code = _run_terraform(
+        temporary_dir, "destroy", logger, tf_vars, timeout=TRAINING_DESTROY_TIMEOUT
+    )
+    if return_code == 0:
+        logger.info("Temporary infrastructure destroyed successfully.")
+        return
+
+    logger.error(f"terraform destroy exited {return_code}; falling back to the EC2 API.")
+
+    if instance_id:
+        ec2 = boto3.client("ec2", region_name=AWS_REGION)
+        try:
+            logger.info(f"Terminating {instance_id} directly...")
+            ec2.terminate_instances(InstanceIds=[instance_id])
+            ec2.get_waiter("instance_terminated").wait(
+                InstanceIds=[instance_id],
+                WaiterConfig={"Delay": 15, "MaxAttempts": 40},  # ~10 min ceiling
+            )
+            logger.info(f"Instance {instance_id} terminated.")
+        except ClientError as e:
+            # An id that no longer exists is the happy case -- nothing is billing.
+            logger.warning(f"Could not terminate {instance_id} directly: {e}")
+    else:
+        logger.warning("No instance id available; cannot terminate directly.")
+
+    # Second pass, now that nothing should be holding the resources open.
+    return_code = _run_terraform(
+        temporary_dir, "destroy", logger, tf_vars, timeout=TRAINING_DESTROY_TIMEOUT
     )
     if return_code != 0:
-        raise TerraformCommandError(return_code, "terraform destroy (temporary)", stdout, stderr)
+        raise TerraformCommandError(return_code, "terraform destroy (temporary)", None, None)
 
-    logger.info("Temporary infrastructure destroyed successfully.")
+    logger.info("Temporary infrastructure destroyed successfully after direct termination.")
 
 
 @flow
@@ -268,40 +348,46 @@ def main():
     tf_ingestion_dir = Path(PROJECT_ROOT) / "infra/terraform/temporary/ingestion"
     tf_training_dir = Path(PROJECT_ROOT) / "infra/terraform/temporary/training"
 
-    # 1: Check for whether Clash Royale has been updated since the last run
-    #game_changed = check_for_game_changing_events()
-    game_changed = True; print("HARDCODED game_changed=True for testing")  # FOR TESTING ONLY
-    if not game_changed:
-        return
-
+    # These run unconditionally: `run_remote_command` resolves its region via
+    # the Prefect Variable "aws-region", and training reads its wandb key and S3
+    # prefixes the same way. With the ingestion block below commented out for
+    # testing, the training-only path would otherwise depend on whatever a
+    # previous run happened to leave behind on the Prefect server.
     set_secrets()
     set_vars()
-    logger.info("Initiating Data Collection & Training")
+
+    # # 1: Check for whether Clash Royale has been updated since the last run
+    # #game_changed = check_for_game_changing_events()
+    # game_changed = True; print("HARDCODED game_changed=True for testing")  # FOR TESTING ONLY
+    # if not game_changed:
+    #     return
+
+    # logger.info("Initiating Data Collection & Training")
 
 
-    # 2: Create fresh infra for ingestion (clearing any existing ephemeral infra)
+    # # 2: Create fresh infra for ingestion (clearing any existing ephemeral infra)
 
 
-    logger.info(f"Using Terraform base directory: {tf_ingestion_dir}")
-    oldest_time_allowed = datetime.now(timezone.utc) 
-    from datetime import timedelta
-    oldest_time_allowed = oldest_time_allowed - timedelta(weeks=2); print("HARDCODED oldest_time_allowed to be more forgiving for development")
-    elastic_ip_allocation_id, instance_profile_name, tmp_instance_id = provision_ingestion_infrastructure(tf_ingestion_dir=tf_ingestion_dir, tf_persistent_dir=tf_persistent_dir)
+    # logger.info(f"Using Terraform base directory: {tf_ingestion_dir}")
+    # oldest_time_allowed = datetime.now(timezone.utc) 
+    # from datetime import timedelta
+    # oldest_time_allowed = oldest_time_allowed - timedelta(weeks=2); print("HARDCODED oldest_time_allowed to be more forgiving for development")
+    # elastic_ip_allocation_id, instance_profile_name, tmp_instance_id = provision_ingestion_infrastructure(tf_ingestion_dir=tf_ingestion_dir, tf_persistent_dir=tf_persistent_dir)
 
-    # 3: Invoke data ingestion
-    try:
-        # Inside the try so that an instance which never becomes ready still
-        # gets torn down by the `finally` rather than left running.
-        wait_for_instance_ready(tmp_instance_id)
-        call_ingestion(oldest_time_allowed, tmp_instance_id) # TODO: modify ingestion code to build the urls dict/json with every troop encountered and send those to S3
-    except:
-        logger.error("Ingestion failed!!")
-        raise # infra destruction in `finally` will still run before exiting
+    # # 3: Invoke data ingestion
+    # try:
+    #     # Inside the try so that an instance which never becomes ready still
+    #     # gets torn down by the `finally` rather than left running.
+    #     wait_for_instance_ready(tmp_instance_id)
+    #     call_ingestion(oldest_time_allowed, tmp_instance_id) # TODO: modify ingestion code to build the urls dict/json with every troop encountered and send those to S3
+    # except:
+    #     logger.error("Ingestion failed!!")
+    #     raise # infra destruction in `finally` will still run before exiting
     
-    finally:
-        # tear down data ingestion infra
-        logger.info("destroying ephemeral infra")
-        destroy_ingestion_infrastructure(tf_ingestion_dir, elastic_ip_allocation_id, instance_profile_name)
+    # finally:
+    #     # tear down data ingestion infra
+    #     logger.info("destroying ephemeral infra")
+    #     destroy_ingestion_infrastructure(tf_ingestion_dir, elastic_ip_allocation_id, instance_profile_name)
     
     # 4: Train, quantize and publish the model on a GPU box
     # training.pipeline handles train -> ONNX export -> INT8 quantize -> upload
@@ -327,7 +413,9 @@ def main():
     finally:
         # tear down training infra -- a GPU box left running is expensive
         logger.info("destroying ephemeral training infra")
-        destroy_training_infrastructure(tf_training_dir, training_profile_name)
+        destroy_training_infrastructure(
+            tf_training_dir, training_profile_name, training_instance_id
+        )
 
     # 5: Alert Github of the change
     # send a requests.post() trigger to github actions

@@ -42,6 +42,13 @@ data "aws_ssm_parameter" "deep_learning_ami" {
   name = "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-amazon-linux-2023/latest/ami-id"
 }
 
+# The console's "EC2 Instance Connect" button originates from an AWS-owned CIDR,
+# not from your laptop, so the home/campus rules below never covered it. This
+# managed prefix list is the maintained source for that range.
+data "aws_ec2_managed_prefix_list" "ec2_instance_connect" {
+  name = "com.amazonaws.${data.aws_region.current.region}.ec2-instance-connect"
+}
+
 # -----------------------------------------------------------------------------
 # IAM Policy & Attachment (New)
 # -----------------------------------------------------------------------------
@@ -56,10 +63,12 @@ resource "aws_iam_policy" "prefect_secrets" {
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Action   = "secretsmanager:GetSecretValue",
-      Effect   = "Allow",
-      # Scoped strictly to the specific secret in your current region/account
-      Resource = "*"
+      Action = "secretsmanager:GetSecretValue",
+      Effect = "Allow",
+      # Scoped strictly to the specific secret in your current region/account.
+      # The trailing "-*" matches the six random characters Secrets Manager
+      # appends to every secret ARN.
+      Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:prefect_login_info-*"
     }]
   })
 }
@@ -79,7 +88,7 @@ resource "aws_security_group" "training" {
   description = "Security group for temporary GPU training EC2 instance"
 
   ingress {
-    description = "SSH from my home IP"
+    description = "SSH from home and Notre Dame networks"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -91,6 +100,17 @@ resource "aws_security_group" "training" {
       "66.205.160.0/20",  # ND secondary
       "129.74.86.0/23",   # ND secondary
     ]
+  }
+
+  # Without this the console's "Connect -> EC2 Instance Connect" tab fails no
+  # matter how healthy the box is, which makes a wedged instance impossible to
+  # inspect once SSM has stopped answering.
+  ingress {
+    description     = "EC2 Instance Connect (console SSH)"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.ec2_instance_connect.id]
   }
 
   egress {
@@ -130,6 +150,13 @@ resource "aws_instance" "training" {
 
   tags = {
     Name = "training-temporary"
+  }
+
+  # A wedged instance can sit in "shutting-down" for a long time. Without this
+  # the provider's 20-minute default makes `terraform destroy` look like it has
+  # hung; the orchestrator's terminate fallback wants to take over sooner.
+  timeouts {
+    delete = "10m"
   }
 }
 

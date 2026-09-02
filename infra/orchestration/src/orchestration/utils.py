@@ -78,8 +78,20 @@ def get_response(client, prompt: str) -> str:
     return full_response
 
 
+# setup.sh writes `.setup-failed` from its ERR trap and uploads its log here, so
+# a failed bootstrap can be reported immediately instead of running out the
+# clock on `timeout`.
+SETUP_LOG_URI_TEMPLATE = "s3://cr-games-bucket/setup-logs/{instance_id}.log"
+_SETUP_FAILED_EXIT_CODE = 2
+
+
 def wait_for_setup_script(ssm, instance_id: str, timeout: int = 600, poll_interval: int = 10):
-    """Wait until setup.sh has created the completion sentinel."""
+    """Wait until setup.sh has created the completion sentinel.
+
+    Exits early if setup.sh instead left its failure sentinel behind -- without
+    that, a bootstrap that died on the box was indistinguishable from one still
+    running, and the caller ate the whole `timeout` before learning anything.
+    """
     logger = get_run_logger()
 
     deadline = time.monotonic() + timeout
@@ -90,7 +102,9 @@ def wait_for_setup_script(ssm, instance_id: str, timeout: int = 600, poll_interv
             DocumentName="AWS-RunShellScript",
             Parameters={
                 "commands": [
-                    "test -f /opt/classification-pipeline/.setup-complete"
+                    "test -f /opt/classification-pipeline/.setup-complete && exit 0",
+                    f"test -f /opt/classification-pipeline/.setup-failed && exit {_SETUP_FAILED_EXIT_CODE}",
+                    "exit 1",
                 ]
             },
         )
@@ -119,8 +133,14 @@ def wait_for_setup_script(ssm, instance_id: str, timeout: int = 600, poll_interv
             break
 
         if status == "Success":
-            print("Instance setup complete.")
+            logger.info("Instance setup complete.")
             return
+
+        if invocation.get("ResponseCode") == _SETUP_FAILED_EXIT_CODE:
+            log_uri = SETUP_LOG_URI_TEMPLATE.format(instance_id=instance_id)
+            raise RuntimeError(
+                f"setup.sh failed on {instance_id}. Full bootstrap log: {log_uri}"
+            )
 
         # Sentinel doesn't exist yet, so setup is presumably still running.
         time.sleep(poll_interval)

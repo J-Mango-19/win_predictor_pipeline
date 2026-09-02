@@ -122,6 +122,20 @@ def get_wandb_entity() -> str:
     """ return the preferred entity that's writing run metrics to wandb """
     return Variable.get("entity")
 
+# How many consecutive polls may find the SSM agent offline before we give up on
+# the instance. One stray miss is normal (the agent heartbeats every ~5 min);
+# three in a row means the box is gone, not slow.
+MAX_OFFLINE_POLLS = 3
+
+
+def _ssm_ping_status(ssm, instance_id: str) -> str | None:
+    """ Return the instance's SSM PingStatus, or None if SSM no longer knows it. """
+    infos = ssm.describe_instance_information(
+        Filters=[{"Key": "InstanceIds", "Values": [instance_id]}]
+    ).get("InstanceInformationList", [])
+    return infos[0].get("PingStatus") if infos else None
+
+
 def run_remote_command(instance_id: str, commands: list[str], status_check_interval: int=300, execution_timeout: int | None=None) -> str:
     """ Runs a shell command on the remote AWS instance with instance_id.
 
@@ -129,6 +143,11 @@ def run_remote_command(instance_id: str, commands: list[str], status_check_inter
     killing it as TimedOut. Left unset, SSM applies its own default of one hour
     -- fine for ingestion, but far too short for a training run, which should
     pass the AWS-RunShellScript maximum of 172800 (48h).
+
+    The wait loop also watches the SSM agent's PingStatus. A command against an
+    instance that has stopped answering stays InProgress until `execution_timeout`
+    expires, which on the training path is 48 hours of billed GPU -- so a box
+    that goes offline mid-command raises instead.
     """
     ssm = boto3.client("ssm", region_name=get_aws_region())
 
@@ -151,6 +170,8 @@ def run_remote_command(instance_id: str, commands: list[str], status_check_inter
     except botocore.exceptions.WaiterError:
         pass 
 
+    offline_polls = 0
+
     while True:
         response = ssm.get_command_invocation(
             CommandId=command_id,
@@ -167,6 +188,23 @@ def run_remote_command(instance_id: str, commands: list[str], status_check_inter
             "Undeliverable",
         }:
             break
+
+        ping_status = _ssm_ping_status(ssm, instance_id)
+        if ping_status == "Online":
+            offline_polls = 0
+        else:
+            offline_polls += 1
+            print(
+                f"SSM agent on {instance_id} reports {ping_status!r} "
+                f"({offline_polls}/{MAX_OFFLINE_POLLS})"
+            )
+            if offline_polls >= MAX_OFFLINE_POLLS:
+                raise RuntimeError(
+                    f"SSM agent on {instance_id} stopped responding "
+                    f"(PingStatus={ping_status!r}) while command {command_id} was "
+                    f"still {status}. Abandoning the command rather than waiting "
+                    f"out its execution timeout."
+                )
 
         time.sleep(status_check_interval)
 
