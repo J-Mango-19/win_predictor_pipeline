@@ -102,6 +102,26 @@ def get_aws_region() -> str:
     """ return the AWS region for S3 bucket """
     return Variable.get("aws-region")
 
+def get_training_dataset_prefix() -> str:
+    """ return the S3 prefix ("folder") of parquet file(s) the model trains on """
+    return Variable.get("training-dataset-prefix")
+
+def get_model_weights_prefix() -> str:
+    """ return the S3 prefix ("folder") that trained model weights are uploaded to """
+    return Variable.get("model-weights-prefix")
+
+def get_wandb_api_key() -> str:
+    """ return the wandb api key corresponding to the acct to log training progress on """
+    return Secret.load("wandb_api_key").get()
+
+def get_wandb_project_name() -> str:
+    """ return the wandb project name where the run metrics are to be recorded """
+    return Variable.get("wandb-project-name")
+
+def get_wandb_entity() -> str:
+    """ return the preferred entity that's writing run metrics to wandb """
+    return Variable.get("entity")
+
 def run_remote_command(instance_id: str, commands: list[str], status_check_interval: int=300) -> str:
     """ Runs a shell command on the remote AWS instance with instance_id. """
     ssm = boto3.client("ssm", region_name=get_aws_region())

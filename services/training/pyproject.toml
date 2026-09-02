@@ -8,8 +8,15 @@ authors = [
 ]
 requires-python = "==3.13.*"
 dependencies = [
+    "boto3>=1.43.78",
     "numpy>=2.5.2",
+    "onnx>=1.20.0",
+    "polars>=1.43.2",
+    "prefect>=3.8.3",
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
     "torch>=2.13.0",
+    "wandb>=0.18.0",
     "common",
 ]
 

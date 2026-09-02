@@ -18,7 +18,8 @@ from ingestion.extractors.battles import fetch_and_store_games
 from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect, get_parquet_dataset_prefix, ensure_utc
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
-logging.basicConfig(level=logging.INFO)
+log_path = Path(PROJECT_ROOT) / "services/ingestion/src/ingestion/pipeline.log"
+logging.basicConfig(level=logging.INFO, filename=log_path)
 logger = logging.getLogger(__name__)
 
 def task_store_clan_ids(cfg: StoreClanIDsConfig, cr_api_keys: list[str], worker_log_dir: Path, procs_per_api_key: int):
@@ -98,7 +99,7 @@ def task_export_clean_dataset(
     max_games_chunk: int,
     max_lvl_gap: float,
     aws_region: str
-) -> bool:
+) -> tuple[bool, int]:
     """
     Read the `games` table, clean it, and upload the result to S3 as a
     single Parquet file at s3://{bucket}/{prefix}{dataset_filename}.parquet.
@@ -108,6 +109,8 @@ def task_export_clean_dataset(
     bool
         True if the cleaned dataset was successfully uploaded to S3,
         False if any step failed.
+    int  
+        The number of records in the dataset
     """
     dst_s3_path = f"s3://{bucket}/{prefix}{dataset_filename}"
     storage_options = {"region": aws_region}
@@ -168,11 +171,17 @@ def task_export_clean_dataset(
                 )
                 .sink_parquet(dst_s3_path, storage_options=storage_options)
             )
+            height = (
+                pl.scan_parquet(dst_s3_path, storage_options=storage_options)
+                .select(pl.len())
+                .collect()
+                .item()
+            )
         except Exception:
             raise
  
     logger.info(f"Successfully uploaded cleaned games dataset to {dst_s3_path}.")
-    return True
+    return True, height
 
 
 def task_save_database_dump(
@@ -296,7 +305,7 @@ def main():
     )
     
     # we create a clean dataset at each invocation
-    export_success = task_export_clean_dataset(
+    export_success, n_examples = task_export_clean_dataset(
         bucket=get_s3_bucket_name(),
         prefix=get_parquet_dataset_prefix(),
         dataset_filename=pipeline_cfg.export_clean_dataset.dataset_filename,
@@ -314,6 +323,12 @@ def main():
         filename=pipeline_cfg.save_db.database_dump_filename,
         aws_region=get_aws_region()
     )
+
+    logger.info(f"Data ingestion exiting successfully! Dataset of {n_examples} games saved to S3")
+
+    # Save the log to the same directory in S3 as the dataset
+    s3_client = boto3.client("s3")
+    s3_client.upload_file(log_path, get_s3_bucket_name(), Path(get_parquet_dataset_prefix()) / "pipeline.log")
 
 if __name__ == '__main__':
     main()
