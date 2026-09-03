@@ -14,7 +14,12 @@ from common.utils import (
 from training.config import load_training_config
 from training.data import build_dataloader, card_vocab_size, load_s3_folder, make_splits
 from training.models.transformer import TransformerBinaryClassifier
-from training.quantize import export_onnx, quantize_onnx_int8, upload_model
+from training.quantize import (
+    export_onnx,
+    quantize_onnx_int8,
+    upload_model,
+    write_metadata_sidecar,
+)
 from training.train import get_device, train
 
 logging.basicConfig(level=logging.INFO)
@@ -80,6 +85,12 @@ def main() -> None:
     export_onnx(raw_model, cfg.model, vocab_size, fp32_path)
     quantize_onnx_int8(fp32_path, int8_path)
     upload_model(int8_path, bucket, f"{weights_prefix}/{cfg.output.model_filename}")
+
+    # The frontend build reads this instead of the graph's metadata_props, which
+    # onnxruntime-web cannot see. Uploaded after the model so the sidecar never
+    # describes weights that failed to land.
+    sidecar = write_metadata_sidecar(int8_path, cfg.model, vocab_size)
+    upload_model(sidecar, bucket, f"{weights_prefix}/{sidecar.name}")
 
 
 if __name__ == "__main__":

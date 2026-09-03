@@ -28,5 +28,5 @@ export_clean_dataset:
   dataset_filename: "clean-games-latest.parquet"
   max_games_chunk: 1_000_000
 
-export_database:
+save_db:
   database_dump_filename: "latest_cr_db.dump"

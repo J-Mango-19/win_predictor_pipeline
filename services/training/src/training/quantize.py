@@ -1,6 +1,9 @@
 import copy
+import hashlib
 import json
 import logging
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import boto3
@@ -246,6 +249,56 @@ def quantize_onnx_int8(fp32_path: Path, int8_path: Path) -> Path:
         fp32_path.stat().st_size / 1e6,
     )
     return int8_path
+
+
+def _training_commit() -> str | None:
+    """Best-effort git SHA of the checkout that produced this model.
+
+    The training box clones the repo to /opt/classification-pipeline, so this
+    resolves there; it returns None anywhere git is unavailable rather than
+    failing an otherwise-good training run.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def write_metadata_sidecar(int8_path: Path, model_cfg: ModelConfig, vocab_size: int) -> Path:
+    """Publish the graph's metadata as plain JSON next to the .onnx file.
+
+    ``export_onnx`` already stashes this on ``metadata_props``, but
+    onnxruntime-web exposes no API for custom metadata, so the browser can never
+    read ``vocab_size`` out of the model itself. The frontend build reads this
+    sidecar instead, which also keeps the ``onnx`` package out of CI.
+
+    ``vocab_size`` is the one the frontend cannot do without: it is inferred per
+    run from the dataset, and the card map published by ingestion may legitimately
+    contain higher ids, which must not be fed to the embedding table.
+    """
+    sidecar = int8_path.with_suffix(".metadata.json")
+    payload = {
+        "vocab_size": vocab_size,
+        "model_config": model_cfg.model_dump(),
+        "quantization": QUANTIZATION_SCHEME,
+        "opset": OPSET_VERSION,
+        "input_names": INPUT_NAMES,
+        "output_name": OUTPUT_NAME,
+        "sha256": hashlib.sha256(int8_path.read_bytes()).hexdigest(),
+        "bytes": int8_path.stat().st_size,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "training_commit": _training_commit(),
+    }
+    sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    logger.info("wrote model metadata sidecar to %s (vocab_size=%d)", sidecar, vocab_size)
+    return sidecar
 
 
 def upload_model(local_path: Path, bucket: str, key: str) -> str:

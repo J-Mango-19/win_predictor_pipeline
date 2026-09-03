@@ -4,6 +4,7 @@ import sys
 import tempfile
 import subprocess
 import logging
+import json
 import boto3
 import psycopg
 import polars as pl
@@ -16,7 +17,8 @@ from ingestion.config import load_pipeline_config,  StoreActivePlayerIDsConfig, 
 from ingestion.extractors.clans import get_region_IDs, fetch_and_store_clans
 from ingestion.extractors.players import fetch_and_store_players
 from ingestion.extractors.battles import fetch_and_store_games
-from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect, get_parquet_dataset_prefix, ensure_utc
+from ingestion.extractors.cards import get_card_image_urls
+from common.utils import get_api_credentials, get_s3_bucket_name, get_database_dump_prefix, get_aws_region, login_to_prefect, get_parquet_dataset_prefix, get_frontend_assets_prefix, ensure_utc
 from common.constants import PROJECT_ROOT, WINNER_LVL_COLS, LOSER_LVL_COLS, WINNER_CARD_COLS, LOSER_CARD_COLS, INVALID_TOKEN
 
 log_path = Path(PROJECT_ROOT) / "services/ingestion/src/ingestion/pipeline.log"
@@ -185,6 +187,74 @@ def task_export_clean_dataset(
     return True, height
 
 
+def task_export_frontend_assets(
+    bucket: str,
+    prefix: str,
+    cr_api_key: str,
+    aws_region: str,
+) -> tuple[int, int]:
+    """
+    Publish the two files the web app needs in order to interpret the model.
+
+    - card_to_token_id.json: the card_ids table verbatim. These ids ARE the
+      model's embedding indices, so this file and the .onnx uploaded by the
+      training stage are a matched pair -- a stale copy of either produces
+      confidently wrong predictions rather than an error.
+    - png_urls.json: card art, keyed the same way.
+
+    Runs here rather than in the frontend's CI because the Clash API whitelists
+    this box's Elastic IP.
+
+    Returns:
+        (number of cards published, number of image URLs published)
+    """
+    s3_client = boto3.client("s3", region_name=aws_region)
+    prefix = prefix.strip("/")
+
+    card_to_idx = make_card_to_idx_mapping()
+    if not card_to_idx:
+        raise ValueError("card_ids table is empty; refusing to publish an empty card map")
+
+    png_urls = get_card_image_urls(cr_api_key)
+
+    # Keep any previously published URL for a card the catalog no longer lists,
+    # so a transient API omission does not blank out existing card art.
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=f"{prefix}/png_urls.json")
+        png_urls = {**json.loads(response["Body"].read()), **png_urls}
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") not in ("NoSuchKey", "404"):
+            raise
+        logger.info("no previously published png_urls.json to merge with")
+
+    missing_art = sorted(set(card_to_idx) - set(png_urls))
+    if missing_art:
+        logger.warning(f"No image URL for {len(missing_art)} cards: {missing_art}")
+
+    # Card ids are cast to UInt8 during dataset export and INVALID_TOKEN is 254,
+    # so the id space runs out well before a UInt8 does.
+    max_id = max(card_to_idx.values())
+    if max_id >= 200:
+        logger.error(
+            f"Highest card id is {max_id}, approaching INVALID_TOKEN={INVALID_TOKEN}. "
+            "Card ids need a wider dtype than UInt8 before this reaches 254."
+        )
+
+    for filename, payload in (
+        ("card_to_token_id.json", card_to_idx),
+        ("png_urls.json", png_urls),
+    ):
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=f"{prefix}/{filename}",
+            Body=json.dumps(payload, indent=2, sort_keys=True).encode(),
+            ContentType="application/json",
+        )
+        logger.info(f"uploaded s3://{bucket}/{prefix}/{filename}")
+
+    return len(card_to_idx), len(png_urls)
+
+
 def task_save_database_dump(
     bucket: str,
     prefix: str,
@@ -316,6 +386,18 @@ def main():
     )
     if not export_success:
         raise
+
+    # Publish the frontend's copy of the card vocabulary alongside the dataset it
+    # describes. After the dataset export, so a failed export never publishes a
+    # vocabulary for a model that will not be retrained; before the db dump,
+    # which is the natural end of the run, while the whitelisted EIP is still up.
+    n_cards, n_images = task_export_frontend_assets(
+        bucket=get_s3_bucket_name(),
+        prefix=get_frontend_assets_prefix(),
+        cr_api_key=cr_api_keys[0],
+        aws_region=get_aws_region()
+    )
+    logger.info(f"Published {n_cards} card ids and {n_images} image URLs for the frontend")
 
     # save the rest of the database to a .dump file in S3 (w/o the games table)
     task_save_database_dump(

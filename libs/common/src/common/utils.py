@@ -110,6 +110,14 @@ def get_model_weights_prefix() -> str:
     """ return the S3 prefix ("folder") that trained model weights are uploaded to """
     return Variable.get("model-weights-prefix")
 
+def get_frontend_assets_prefix() -> str:
+    """ return the S3 prefix ("folder") holding the JSON files the web app loads """
+    return Variable.get("frontend-assets-prefix")
+
+def get_github_dispatch_token() -> str:
+    """ return the PAT used to POST repository_dispatch events to GitHub """
+    return Secret.load("github-dispatch-token").get()
+
 def get_wandb_api_key() -> str:
     """ return the wandb api key corresponding to the acct to log training progress on """
     return Secret.load("wandb-api-key").get()
