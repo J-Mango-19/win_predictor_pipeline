@@ -1,6 +1,7 @@
 import subprocess
 import time
 import boto3
+import requests
 from botocore.exceptions import ClientError
 from prefect import flow, task, get_run_logger
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ from pathlib import Path
 from python_terraform import Terraform, TerraformCommandError
 from orchestration.utils import construct_prompt, get_response, extract_json_from_tail, wait_for_setup_script, wait_for_ec2_status_checks, wait_for_ssm_registration
 from common.constants import PROJECT_ROOT
-from common.utils import run_remote_command, ensure_utc
+from common.utils import run_remote_command, ensure_utc, get_github_dispatch_token
 from orchestration.prefect_secrets import set_secrets
 from orchestration.prefect_vars import set_vars
 
@@ -24,6 +25,10 @@ TRAINING_SSM_TIMEOUT = 300
 # the whole destroy, after which the terminate fallback takes over.
 TRAINING_DESTROY_TIMEOUT = 900
 AWS_REGION = "us-east-2"
+# The frontend is a GitHub Pages site built by .github/workflows/deploy-frontend.yml,
+# which pulls the new weights from S3. repository_dispatch is how this flow reaches it.
+GITHUB_REPO = "J-Mango-19/win_predictor_pipeline"
+GITHUB_DISPATCH_EVENT = "model-updated"
 
 
 def _run_terraform(
@@ -340,6 +345,43 @@ def destroy_training_infrastructure(
     logger.info("Temporary infrastructure destroyed successfully after direct termination.")
 
 
+@task(name="trigger-frontend-deploy", retries=3, retry_delay_seconds=30)
+def trigger_frontend_deploy() -> None:
+    """Ask GitHub Actions to rebuild the Pages site against the new weights.
+
+    The workflow pulls everything it needs from S3 itself, so client_payload is
+    purely informational -- that keeps the deploy decoupled from whatever this
+    flow happened to compute.
+    """
+    logger = get_run_logger()
+
+    response = requests.post(
+        f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {get_github_dispatch_token()}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={
+            "event_type": GITHUB_DISPATCH_EVENT,
+            "client_payload": {
+                "dispatched_at": datetime.now(timezone.utc).isoformat(),
+                "source": "prefect",
+            },
+        },
+        timeout=30,
+    )
+
+    # A successful dispatch is 204 No Content. A 404 here almost always means the
+    # token lacks Contents: write rather than that the repo is missing.
+    if response.status_code != 204:
+        raise RuntimeError(
+            f"repository_dispatch failed: {response.status_code} {response.text}"
+        )
+
+    logger.info(f"Dispatched '{GITHUB_DISPATCH_EVENT}' to {GITHUB_REPO}")
+
+
 @flow
 def main():
     logger = get_run_logger()
@@ -417,10 +459,12 @@ def main():
             tf_training_dir, training_profile_name, training_instance_id
         )
 
-    # 5: Alert Github of the change
-    # send a requests.post() trigger to github actions
-    # which will download and serve the new weights
-    # and the new troop image URLs
+    # 5: Tell GitHub Actions to rebuild the site against the new weights.
+    # Deliberately allowed to fail the flow: both ephemeral stacks are already
+    # torn down by the `finally` above, so nothing is billing, and a failed
+    # dispatch means the site is serving stale weights -- worth a red flow run
+    # that can be re-run from the UI rather than a silent no-op.
+    trigger_frontend_deploy()
 
 
 def cli_run():

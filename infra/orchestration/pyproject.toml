@@ -11,6 +11,9 @@ dependencies = [
     "boto3>=1.43.78",
     "prefect>=3.8.3",
     "python-terraform>=0.10.1",
+    # orchestrator.py POSTs a repository_dispatch to GitHub. Already present
+    # transitively via prefect; declared because we import it directly.
+    "requests>=2.32.0",
     "common",
     "polars>=1.43.2",
 ]

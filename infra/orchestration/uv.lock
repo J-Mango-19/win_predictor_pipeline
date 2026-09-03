@@ -772,6 +772,7 @@ dependencies = [
     { name = "polars" },
     { name = "prefect" },
     { name = "python-terraform" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -781,6 +782,7 @@ requires-dist = [
     { name = "polars", specifier = ">=1.43.2" },
     { name = "prefect", specifier = ">=3.8.3" },
     { name = "python-terraform", specifier = ">=0.10.1" },
+    { name = "requests", specifier = ">=2.32.0" },
 ]
 
 [[package]]
