@@ -3,15 +3,39 @@ import * as ort from "onnxruntime-web/wasm";
 
 const DECK_SIZE = 8;
 const DEFAULT_LEVEL = 11;
+// Must match MAX_CARD_LEVEL in services/training/src/training/data.py, which is
+// what the levels were divided by when the model was trained.
+const MAX_CARD_LEVEL = 16;
+
 const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path}`;
-const MODEL_PATH = assetPath("model/clash_model.onnx");
-const MODEL_DATA_PATH = assetPath("model/clash_model.onnx.data");
-const CARD_DATA_PATH = assetPath("data/card_to_token_id.json");
-const CARD_PNG_PATH = assetPath("data/png_urls.json");
-const LEVELS = Array.from({ length: 16 }, (_, index) => index + 1);
+// Everything else is named by the manifest, which prepare-assets.mjs writes at
+// build time with content-addressed filenames.
+const MANIFEST_PATH = assetPath("model-manifest.json");
+const LEVELS = Array.from({ length: MAX_CARD_LEVEL }, (_, index) => index + 1);
+
+// Graph I/O of the pipeline's model. Defined in
+// services/training/src/training/quantize.py (INPUT_NAMES / OUTPUT_NAME);
+// changing either side means changing both.
+const INPUT_DECK_A = "deck_a";
+const INPUT_DECK_B = "deck_b";
+const INPUT_LVLS_A = "deck_a_lvls";
+const INPUT_LVLS_B = "deck_b_lvls";
+const OUTPUT_LOGIT = "logit";
 
 type CardMap = Record<string, number>;
 type PngUrlMap = Record<string, string>;
+
+type Manifest = {
+  schemaVersion: number;
+  model: string;
+  cardMap: string;
+  imageUrls: string;
+  /** Rows in the model's embedding table. null for a model published before the
+   *  training stage emitted a metadata sidecar. */
+  vocabSize: number | null;
+  trainedAt: string | null;
+  trainingCommit: string | null;
+};
 
 type Card = {
   name: string;
@@ -40,19 +64,31 @@ const cardDisplayName = (name: string) => name.replaceAll("_", " ");
 
 const imageKey = (name: string) => cardDisplayName(name).toLowerCase();
 
-const toCards = (cardMap: CardMap, pngUrls: PngUrlMap): Card[] =>
-  Object.entries(cardMap)
-    .map(([name, tokenId]) => {
-      const displayName = cardDisplayName(name);
+const toCards = (
+  cardMap: CardMap,
+  pngUrls: PngUrlMap,
+  vocabSize: number | null,
+): { cards: Card[]; hidden: number } => {
+  const all = Object.entries(cardMap);
 
-      return {
-        name,
-        tokenId,
-        displayName,
-        imageUrl: pngUrls[imageKey(name)] ?? "",
-      };
-    })
+  // The embedding table has `vocabSize` rows, but card_ids legitimately holds
+  // cards that never appeared in an exported game -- their ids sit past the end
+  // of the table. ORT's WASM backend reads out of bounds rather than raising, so
+  // a bad token yields a plausible-looking wrong answer. Drop them here.
+  const usable =
+    vocabSize === null ? all : all.filter(([, id]) => id >= 0 && id < vocabSize);
+
+  const cards = usable
+    .map(([name, tokenId]) => ({
+      name,
+      tokenId,
+      displayName: cardDisplayName(name),
+      imageUrl: pngUrls[imageKey(name)] ?? "",
+    }))
     .sort((a, b) => a.tokenId - b.tokenId);
+
+  return { cards, hidden: all.length - usable.length };
+};
 
 const selectedNames = (deck: DeckSlot[]) =>
   new Set(deck.map((slot) => slot.cardName).filter(Boolean) as string[]);
@@ -75,6 +111,8 @@ function App() {
   const [playerTwo, setPlayerTwo] = useState<DeckSlot[]>(emptyDeck);
   const [activeSlot, setActiveSlot] = useState<{ player: PlayerKey; index: number } | null>(null);
   const [session, setSession] = useState<ort.InferenceSession | null>(null);
+  const [manifest, setManifest] = useState<Manifest | null>(null);
+  const [hiddenCardCount, setHiddenCardCount] = useState(0);
   const [prediction, setPrediction] = useState<PredictionState>({
     status: "idle",
     probability: null,
@@ -84,30 +122,47 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([
-      fetch(CARD_DATA_PATH).then((response) => {
-        if (!response.ok) {
-          throw new Error(`Card list failed to load: ${response.status}`);
-        }
-        return response.json() as Promise<CardMap>;
-      }),
-      fetch(CARD_PNG_PATH).then((response) => {
-        if (!response.ok) {
-          throw new Error(`Card image URLs failed to load: ${response.status}`);
-        }
-        return response.json() as Promise<PngUrlMap>;
-      }),
-    ])
-      .then(([cardMap, pngUrls]) => {
-        if (!cancelled) {
-          setCards(toCards(cardMap, pngUrls));
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setCardLoadError(error instanceof Error ? error.message : "Card list failed to load.");
-        }
-      });
+    const fetchJson = async <T,>(url: string, label: string): Promise<T> => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`${label} failed to load: ${response.status}`);
+      }
+      return (await response.json()) as T;
+    };
+
+    const load = async () => {
+      // The manifest is the one asset without a content-addressed name, so it
+      // is the only one that can go stale. "no-cache" forces a conditional
+      // revalidation (a ~600 byte 304), rather than "no-store" which would
+      // throw away the 304 too.
+      const response = await fetch(MANIFEST_PATH, { cache: "no-cache" });
+      if (!response.ok) {
+        throw new Error(
+          `model-manifest.json missing (${response.status}). ` +
+            "Run `npm run fetch-assets` to download the model from S3.",
+        );
+      }
+      const loaded = (await response.json()) as Manifest;
+
+      const [cardMap, pngUrls] = await Promise.all([
+        fetchJson<CardMap>(assetPath(loaded.cardMap), "Card list"),
+        fetchJson<PngUrlMap>(assetPath(loaded.imageUrls), "Card image URLs"),
+      ]);
+      if (cancelled) {
+        return;
+      }
+
+      const { cards: usable, hidden } = toCards(cardMap, pngUrls, loaded.vocabSize);
+      setManifest(loaded);
+      setCards(usable);
+      setHiddenCardCount(hidden);
+    };
+
+    load().catch((error: unknown) => {
+      if (!cancelled) {
+        setCardLoadError(error instanceof Error ? error.message : "Card list failed to load.");
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -184,6 +239,9 @@ function App() {
     if (session) {
       return session;
     }
+    if (!manifest) {
+      throw new Error("Model manifest has not loaded yet.");
+    }
 
     setPrediction({
       status: "loading-model",
@@ -191,14 +249,11 @@ function App() {
       message: "Loading the ONNX model in your browser...",
     });
 
-    const nextSession = await ort.InferenceSession.create(MODEL_PATH, {
+    // No externalData: the pipeline quantizes to a single self-contained file
+    // (services/training/src/training/quantize.py calls plain onnx.save). That
+    // is also what lets prepare-assets.mjs rename it by content hash.
+    const nextSession = await ort.InferenceSession.create(assetPath(manifest.model), {
       executionProviders: ["wasm"],
-      externalData: [
-        {
-          path: "clash_model.onnx.data",
-          data: MODEL_DATA_PATH,
-        },
-      ],
       graphOptimizationLevel: "all",
     });
     setSession(nextSession);
@@ -213,66 +268,60 @@ function App() {
     try {
       const currentSession = await loadSession();
 
-      console.log("INPUT NAMES:");
-      console.log(currentSession.inputNames);
-
-      console.log("INPUT METADATA:");
-      console.log(currentSession.inputMetadata);
-
       setPrediction({
         status: "running",
         probability: null,
         message: "Running deck matchup inference...",
       });
 
+      const vocabSize = manifest?.vocabSize ?? null;
+      const tokenIds = (deck: DeckSlot[]) =>
+        deck.map((slot) => {
+          const card = slot.cardName ? cardByName.get(slot.cardName) : null;
+          if (!card) {
+            throw new Error("A selected card is missing from the token map.");
+          }
+          // toCards already filters these out of the picker; this catches any
+          // other path into a deck (a future import feature, say) before the
+          // out-of-range read reaches ORT, which would not report it.
+          if (vocabSize !== null && (card.tokenId < 0 || card.tokenId >= vocabSize)) {
+            throw new Error(
+              `"${card.displayName}" is outside this model's vocabulary (${vocabSize} cards).`,
+            );
+          }
+          return BigInt(card.tokenId);
+        });
 
-      const AIds = playerOne.map((slot) => {
-      const card = slot.cardName ? cardByName.get(slot.cardName) : null;
-      if (!card) {
-        throw new Error("A selected card is missing from the token map.");
-      }
-      return BigInt(card.tokenId);
-      });
-
-      const BIds = playerTwo.map((slot) => {
-      const card = slot.cardName ? cardByName.get(slot.cardName) : null;
-      if (!card) {
-        throw new Error("A selected card is missing from the token map.");
-      }
-      return BigInt(card.tokenId);
-      });
-
-      const ALvls = playerOne.map((slot) => slot.level / 16.0);
-      const BLvls = playerTwo.map((slot) => slot.level / 16.0);
+      const levels = (deck: DeckSlot[]) => deck.map((slot) => slot.level / MAX_CARD_LEVEL);
 
       const feeds: Record<string, ort.Tensor> = {
-        A_ids: new ort.Tensor(
+        [INPUT_DECK_A]: new ort.Tensor(
           "int64",
-          BigInt64Array.from(AIds),
-          [1, 8]
+          BigInt64Array.from(tokenIds(playerOne)),
+          [1, DECK_SIZE],
         ),
-
-        B_ids: new ort.Tensor(
+        [INPUT_DECK_B]: new ort.Tensor(
           "int64",
-          BigInt64Array.from(BIds),
-          [1, 8]
+          BigInt64Array.from(tokenIds(playerTwo)),
+          [1, DECK_SIZE],
         ),
-
-        A_lvls: new ort.Tensor(
+        [INPUT_LVLS_A]: new ort.Tensor(
           "float32",
-          Float32Array.from(ALvls),
-          [1, 8]
+          Float32Array.from(levels(playerOne)),
+          [1, DECK_SIZE],
         ),
-
-        B_lvls: new ort.Tensor(
+        [INPUT_LVLS_B]: new ort.Tensor(
           "float32",
-          Float32Array.from(BLvls),
-          [1, 8]
+          Float32Array.from(levels(playerTwo)),
+          [1, DECK_SIZE],
         ),
       };
 
       const output = await currentSession.run(feeds);
-      const tensor = output.squeeze_1 ?? output[currentSession.outputNames[0]];
+      const tensor = output[OUTPUT_LOGIT] ?? output[currentSession.outputNames[0]];
+      if (!tensor) {
+        throw new Error(`Model produced no "${OUTPUT_LOGIT}" output.`);
+      }
 
       const logit = Number(tensor.data[0]);
       const probability = Math.max(0, Math.min(1, sigmoid(logit)));
@@ -307,6 +356,14 @@ function App() {
 
       {cardLoadError ? <div className="notice error">{cardLoadError}</div> : null}
 
+      {hiddenCardCount > 0 ? (
+        <div className="notice">
+          {hiddenCardCount} card{hiddenCardCount === 1 ? "" : "s"} hidden &mdash;
+          {hiddenCardCount === 1 ? " it does" : " they do"} not appear in the games this
+          model was trained on.
+        </div>
+      ) : null}
+
       <section className="arena-layout" aria-label="Deck matchup builder">
         <DeckBuilder
           title="Player 1's Deck"
@@ -322,6 +379,7 @@ function App() {
         />
         <PredictionPanel
           isComplete={isComplete}
+          modelReady={manifest !== null}
           prediction={prediction}
           probabilityPercent={probabilityPercent}
           onPredict={runPrediction}
@@ -492,6 +550,9 @@ function CardImage({ card, compact = false }: { card: Card; compact?: boolean })
 
 type PredictionPanelProps = {
   isComplete: boolean;
+  /** False until model-manifest.json has loaded; without it there is no model
+   *  path to hand onnxruntime. */
+  modelReady: boolean;
   prediction: PredictionState;
   probabilityPercent: number | null;
   onPredict: () => void;
@@ -499,6 +560,7 @@ type PredictionPanelProps = {
 
 function PredictionPanel({
   isComplete,
+  modelReady,
   prediction,
   probabilityPercent,
   onPredict,
@@ -529,7 +591,7 @@ function PredictionPanel({
       <button
         className="predict-button"
         type="button"
-        disabled={!isComplete || isBusy}
+        disabled={!isComplete || !modelReady || isBusy}
         onClick={onPredict}
         data-testid="predict-button"
       >
