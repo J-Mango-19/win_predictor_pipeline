@@ -1,8 +1,7 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
-build/
-dist/
+build/ dist/
 wheels/
 *.egg-info
 
@@ -15,4 +14,33 @@ prefect_vars.py
 *.tfstate
 *.tfstate.backup
 **/.terraform/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# unnecessary
+*.log
+
+# frontend
+node_modules/
+
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Large model binaries / weights
+*.onnx
+*.onnx.data
+public/model/
 
