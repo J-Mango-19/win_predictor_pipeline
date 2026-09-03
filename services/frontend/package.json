@@ -6,18 +6,21 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "fetch-assets": "node scripts/prepare-assets.mjs",
+    "prepare-assets": "node scripts/prepare-assets.mjs",
+    "prepare-assets:offline": "node scripts/prepare-assets.mjs --offline"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
     "onnxruntime-web": "^1.22.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "vite": "^7.0.0"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.8.3"
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
   }
 }
