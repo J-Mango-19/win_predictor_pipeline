@@ -56,10 +56,10 @@ def login_to_prefect() -> None:
     refresh_global_settings_context()
 
 
-def get_api_credentials() -> list[str]:
+def get_api_credentials(num_cr_api_keys: int=8) -> list[str]:
     """Retrieves encrypted secrets directly from Prefect Cloud Blocks."""
     keys = []
-    for key_name in ["clash-api-key-1", "clash-api-key-2", "clash-api-key-3", "clash-api-key-4", "clash-api-key-5"]:
+    for key_name in [f"clash-api-key-{i}" for i in range(1, num_cr_api_keys+1)]:
         try:
             # Prefect 3.0 Secret Block load pattern
             token = Secret.load(key_name).get()
