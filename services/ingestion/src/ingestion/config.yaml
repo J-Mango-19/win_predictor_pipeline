@@ -21,7 +21,7 @@ games:
   num_workers: 20
   inactivity_threshold_weeks: 2
   game_modes_allowed: ["draft", "triple draft", "mega draft", "ladder", "ranked ladder"]
-  soft_games_limit: 250_000
+  soft_games_limit: 10_000_000 
 
 export_clean_dataset:
   max_loser_lvl_advantage: 5
