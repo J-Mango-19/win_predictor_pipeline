@@ -110,7 +110,7 @@ resource "aws_security_group" "postgres" {
 
 resource "aws_instance" "postgres" {
   ami           = data.aws_ami.amazon_linux.id
-  instance_type = "m7i-flex.large"
+  instance_type = "m7i.large"
   iam_instance_profile = var.instance_profile_name
 
   key_name = "Test Key Pair"
