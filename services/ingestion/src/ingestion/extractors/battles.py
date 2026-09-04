@@ -20,9 +20,13 @@ def get_battle_log(player_tag: str, session: requests.sessions.Session, api_key:
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+
     try:
+        start = time.monotonic()
         response = session.get(url, headers=headers)
         response.raise_for_status()
+        time_diff = time.monotonic() - start
+        logger.info(f"Battle log download time: {time_diff:.2f}s ")
     except requests.exceptions.HTTPError as err:
         if logger is not None:
             logger.info(f"Unable to download a battle log; HTTP Error occurred: {err}")
